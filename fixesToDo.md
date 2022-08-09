@@ -1,0 +1,2 @@
+- Now the scanner have a bug where if there is no space, it always takes the operator as the symbol of the number, so a+4, is read as id a numval +4, so not id a plus numval 4, now I did a quick fix in the parser to avoid errors(not yet)
+- 

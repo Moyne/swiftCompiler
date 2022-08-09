@@ -1,0 +1,607 @@
+import java_cup.runtime.*;
+import java.io.*;
+import java.util.*;
+import java.lang.Object;
+import java.util.stream.Collectors ;
+import java.lang.Math.*;
+
+parser code {:
+    public enum operations{
+        ADD,
+        MUL,
+        DIV,
+        SUB
+    };
+    public class FValue{
+        public boolean inout;
+        public Value value;
+        public FValue(boolean inout,Value value){
+            this.inout=inout;
+            this.value=value;
+        }
+    }
+    public class Parameter{
+        public boolean inout;
+        public boolean argLabel;
+        public String name;
+        public String label;
+        public Value type;
+        public Parameter(boolean inout,String name,Value type){
+            this.inout=inout;
+            this.argLabel=false;
+            this.name=name;
+            this.type=type;
+        }
+        public Parameter(boolean inout,String name,Value type,String label){
+            this.inout=inout;
+            this.argLabel=true;
+            this.name=name;
+            this.type=type;
+            this.label=label;
+        }
+    }
+    public class ClassType{
+        public int sizeClass;
+        public ArrayList<Function> functions;
+        public HashMap<String,Value> properties;
+        public ClassType(int size,ArrayList<Function> funcs,HashMap<String,Value> props){
+            this.sizeClass=size;
+            this.functions=funcs;
+            this.properties=props;
+        }
+    }
+    public class Function{
+        public String name;
+        public String retType;
+        public ArrayList<Parameter> pars;
+        public StringBuffer functionOutput=new StringBuffer();
+        public HashMap<String,Value> varMap=new HashMap<String,Value>();
+        public HashMap<String,Value> letMap=new HashMap<String,Value>();
+        public int regId=(-1);
+        public Function(String name,String retType,ArrayList<Parameter> pars){
+            this.name=name;
+            this.retType=retType;
+            this.pars=pars;
+        }
+    }
+    /*public class Variable{
+        public String name;
+        public boolean costant;
+        public Value type;
+        public Variable(String name,boolean costant,Value type){
+            this.name=name;
+            this.costant=costant;
+            this.type=type;
+        }
+    }*/
+    public class Attribute{
+        public String type;
+        public int regId;
+        public boolean immediate;
+        public Object immediateValue;
+        public Attribute(String type,int regId){
+            this.immediate=false;
+            this.type=type;
+            this.regId=regId;
+        }
+        public Attribute(Object immediateValue,String type){
+            this.immediate=true;
+            this.immediateValue=immediateValue;
+            this.type=type;
+        }
+        public void setReg(int regId){
+            this.regId=regId;
+        }
+        public String getReg(){
+            return "%"+this.regId;
+        }
+    }
+    public class Value{
+        public boolean integer;
+        public boolean pointer;
+        public boolean array;
+        public int sizeInt=0;
+        public int sizeArr=0;
+        public ClassType classType;
+        public Object value;
+        public int pointerAllocated=(-1);
+        public boolean global=false;
+        public String globalName;
+        public Value(Value o){
+            this.integer=o.integer;
+            this.pointer=o.pointer;
+            this.array=o.array;
+            this.sizeInt=o.sizeInt;
+            this.sizeArr=o.sizeArr;
+            this.classType=o.classType;
+            this.value=o.value;
+            this.pointerAllocated=o.pointerAllocated;
+            this.global=o.global;
+        }
+        public Value(int intSize,boolean pointer){
+            this.integer=true;
+            this.sizeInt=intSize;
+            this.pointer=pointer;
+            this.array=false;
+        }
+        public Value(int intSize,boolean pointer,Object value){
+            this.integer=true;
+            this.sizeInt=sizeInt;
+            this.pointer=pointer;
+            this.value=value;
+            this.array=true;
+        }
+        public Value(boolean pointer){
+            this.integer=false;
+            this.array=false;
+            this.pointer=pointer;
+        }
+        public Value(boolean pointer,Object value){
+            this.integer=false;
+            this.array=false;
+            this.pointer=pointer;
+            this.value=value;
+        }
+        public Value(ClassType obj){
+            this.classType=obj;
+            this.integer=false;
+            this.array=false;
+            this.pointer=false;
+        }
+        public void addArrLevel(){
+            this.array=true;
+            this.sizeArr++;
+        }
+        public boolean equal(Value o){
+            boolean a= this.integer==o.integer && this.pointer==o.pointer && this.array==o.array;
+            if(!a) return a;
+            if(this.integer){
+                a=this.sizeInt==o.sizeInt;
+                if(!a) return a;
+            }
+            if(this.array){
+                a=this.sizeArr==o.sizeArr;
+                if(!a) return a;
+            }
+            return true;
+        }
+        public void setValue(Object val){
+            this.value=val;
+        }
+        public void setReg(int regId){
+            if(this.pointerAllocated==-1) this.pointerAllocated=regId; 
+        }
+        public void setReg(String name){
+            this.global=true;
+            this.globalName=name;
+        }
+        public String getReg(){
+            if(this.global) return "@"+this.globalName;
+            else return "%"+this.pointerAllocated;
+        }
+        public String irDec(){
+            StringBuffer type=new StringBuffer();
+            if(integer) type.append("i"+sizeInt);
+            else type.append("double");
+            if(pointer) type.append("*");
+            if(array) return "["+((int)Math.pow(10,sizeArr))+" x "+type.toString()+"]";
+            else return type.toString();
+        }
+        @Override
+        public String toString() {
+            return this.irDec() +" with reg:"+this.getReg();
+        }
+    }
+    public HashMap<String,Value> varMap=new HashMap<String,Value>();
+    public HashMap<String,Value> letMap=new HashMap<String,Value>();
+    public StringBuffer outputBuffer=new StringBuffer();
+    public StringBuffer errorBuffer=new StringBuffer();
+    public StringBuffer globalBuffer=new StringBuffer();
+    public boolean errors=false;
+    public HashMap<String,ClassType> classes=new HashMap<String,ClassType>();
+    public HashMap<String,Function> functions=new HashMap<String,Function>();
+    public int regid=(-1);
+    public int stringIndex=(-1);
+    public boolean inFunction=false;
+    public String functionName;
+    public String getIrOp(operations op,String type){
+        boolean integer=type=="i32";
+        if(op==operations.ADD){
+            if(integer) return "add nsw";
+            else return "fadd nsw";
+        }
+        else if(op==operations.SUB){
+            if(integer) return "sub";
+            else return "fsub";
+        }
+        else if(op==operations.MUL){
+            if(integer) return "mul";
+            else return "fmul";
+        }
+        else if(op==operations.DIV){
+            if(integer) return "sdiv";
+            else return "fdiv";
+        }
+        else return "NOT SUPPORTED";
+    }
+    public String getVarIrDec(String var){
+        if(inFunction){
+            if(functions.get(functionName).varMap.containsKey(var)) return functions.get(functionName).varMap.get(var).irDec();
+            else if(functions.get(functionName).letMap.containsKey(var)) return functions.get(functionName).letMap.get(var).irDec();
+        }
+        if(varMap.containsKey(var)) return varMap.get(var).irDec();
+        else if(letMap.containsKey(var))    return letMap.get(var).irDec();
+        else return "ERROR";
+    }
+    public String getRegVar(String var){
+        if(inFunction){
+            if(functions.get(functionName).varMap.containsKey(var)) return functions.get(functionName).varMap.get(var).getReg();
+            else if(functions.get(functionName).letMap.containsKey(var)) return functions.get(functionName).letMap.get(var).getReg();
+        }
+        if(varMap.containsKey(var)) return varMap.get(var).getReg();
+        else if(letMap.containsKey(var))    return letMap.get(var).getReg();
+        else return "ERROR";
+    }
+    public void report_error(String message, Object info) {
+        System.err.print("ERROR: Syntax error");
+        if (info instanceof Symbol)
+            if (((Symbol)info).left != -1){
+                int line = (((Symbol)info).left)+1;
+                int column = (((Symbol)info).right)+1;
+                System.err.print(" (linea "+line+", colonna "+column+"): ");
+            } else System.err.print(": ");
+        else System.err.print(": ");
+    }
+:};
+
+action code{:
+    
+:};
+
+terminal LET,VAR,DOUBLEVAL,INTVAL;
+terminal String ID,STRINGVAL,STRINGVALS,STRINGVALI,STRINGVALE;
+terminal C,EQ,COL,BO,BC,GO,GC,ARROW;
+terminal STRING,DOUBLE,INT,FUNC,USCORE;
+terminal PLUS,MINUS,DIV,MUL;
+terminal LESS,GREATER,LESSEQ,GREATEREQ,AND,OR,EQUAL,NOT;
+terminal ELIF,ELSE,IF,FOR,IN,WHILE,DOT;
+terminal QO,QC,INOUT,CLASS;
+terminal uminus;
+
+non terminal PROG,DEC,IDINITlist,INIT;
+non terminal ASS,STMS,STM,FUNCTION,FSTMTS;
+non terminal IFCOND,WHILECOND,FORCOND,RANGE,COND,CONDATTR,CONDOP,ELIFBLOCK;
+non terminal ARRVAL,DICTVAL,ATTRL;
+non terminal CLASSDEF,CSTMTS;
+non terminal ArrayList<String> IDlist;
+non terminal Value TYPE,VAL;
+non terminal Value TList,T;
+non terminal operations OP;
+non terminal Attribute ATTR,EXP,PROC;
+non terminal Parameter PAR,CPAR;
+non terminal ArrayList<Parameter> PARlist,CPARlist;
+non terminal String RETVAL;
+non terminal FValue FTYPE;
+non terminal Boolean INOUTF;
+non terminal String STR;
+non terminal Integer STRINGVALINTERP;
+non terminal Function FUNCDef;
+
+precedence left PLUS,MINUS;
+precedence left MUL,DIV;
+precedence left uminus;
+
+start with PROG;
+
+PROG::= STMS {:System.out.println("At the end the global buffer has:\n"+globalBuffer+"\nand theoutput buffer has:\n"+outputBuffer+"\n");:};
+
+//declarations of variables
+
+DEC::= LET IDlist:l TYPE:t {: 
+l.forEach(a->{
+    if(!inFunction){
+        outputBuffer.append("\n@"+a+"= alloca "+t.irDec()+",align 4");
+        Value v=new Value(t);
+        v.setReg(a);
+        letMap.put(a,v);
+    }
+    else{
+        Function f=functions.get(functionName);
+        f.functionOutput.append("\n%"+(++f.regId)+"= alloca "+t.irDec()+",align 4");
+        Value v=new Value(t);
+        v.setReg(f.regId);
+        f.letMap.put(a,v);
+    }
+});
+System.out.println("\tNow letmap contains: "+letMap); :} | VAR IDlist:l TYPE:t {: 
+l.forEach(a->{
+    if(!inFunction){
+        outputBuffer.append("\n@"+a+"= alloca "+t.irDec()+",align 4");
+        Value v=new Value(t);
+        v.setReg(a);
+        varMap.put(a,v);
+    }
+    else{
+        Function f=functions.get(functionName);
+        f.functionOutput.append("\n%"+(++f.regId)+"= alloca "+t.irDec()+",align 4");
+        Value v=new Value(t);
+        v.setReg(f.regId);
+        f.varMap.put(a,v);
+    }
+});
+System.out.println("\tNow varmap contains: "+varMap); :} | LET IDINITlist | VAR IDINITlist;
+
+IDlist::= IDlist:l C ID:x {: ArrayList<String> arr= new ArrayList<String>(l);
+                            arr.add(x);
+                            RESULT=arr;:}| ID:x{:ArrayList<String> arr= new ArrayList<String>();
+                            arr.add(x);
+                            RESULT=arr;:};
+
+IDINITlist::= IDINITlist C INIT | INIT;
+
+INIT::= ID EQ VAL;
+
+TYPE::= COL TList:t {:RESULT=t;:}| COL TList:t EQ VAL:v {:
+    /*if(t.equal(v)) RESULT=t;
+    else System.out.println("\tPARSER:: ERROR FOUND ON DECLARATION;");*/
+    RESULT=t;
+:};
+
+VAL::= DOUBLEVAL:v {:RESULT=new Value(false,v);:}| INTVAL:v {:RESULT=new Value(32,false,v);:}| STR:v {:RESULT=new Value(8,true,v);:}| ARRVAL | DICTVAL;
+
+STR::= STRINGVAL:s {:
+    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+s.length()+" x i8] c\""+s+"\"");
+:}| STRINGVALS:s STRINGVALINTERP:i STRINGVALE:e{:
+    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+s.length()+" x i8] c\""+s+"\"");
+    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+e.length()+" x i8] c\""+e+"\"");
+    int stringArrPointer;
+    int stringGepPointer;
+    if(inFunction){
+        Function f=functions.get(functionName);
+        f.functionOutput.append("\n%"+(++f.regId)+" = alloca [200 x i8], align 1");
+        stringArrPointer=f.regId;
+        f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds [200 x i8], [200 x i8]* %"+stringArrPointer+" , i32 0, i32 0");
+        stringGepPointer=f.regId;
+        f.functionOutput.append("\n%"+(++f.regId)+" = call i8* (i8*,i8*) @strcpy(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+s.length()+" x i8], ["+s.length()+" x i8]* @.str."+(stringIndex-1)+", i32 0, i32 0))");
+        f.functionOutput.append("\n%"+(++f.regId)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* %"+i+")");
+        f.functionOutput.append("\n%"+(++f.regId)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+e.length()+" x i8], ["+e.length()+" x i8]* @.str."+stringIndex+" , i32 0, i32 0))");
+    }
+    else{
+        outputBuffer.append("\n%"+(++regid)+" = alloca [200 x i8], align 1");
+        stringArrPointer=regid;
+        outputBuffer.append("\n%"+(++regid)+" = getelementptr inbounds [200 x i8], [200 x i8]* %"+stringArrPointer+" , i32 0, i32 0");
+        stringGepPointer=regid;
+        outputBuffer.append("\n%"+(++regid)+" = call i8* (i8*,i8*) @strcpy(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+s.length()+" x i8], ["+s.length()+" x i8]* @.str."+(stringIndex-1)+", i32 0, i32 0))");
+        outputBuffer.append("\n%"+(++regid)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* %"+i+")");
+        outputBuffer.append("\n%"+(++regid)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+e.length()+" x i8], ["+e.length()+" x i8]* @.str."+stringIndex+" , i32 0, i32 0))");
+    }
+    //RESULT=stringGepPointer;
+:};
+
+STRINGVALINTERP::= STRINGVALINTERP:i EXP:e {:
+    int stringArrPointer;
+    int stringGepPointer;
+    if(inFunction){
+        Function f=functions.get(functionName);
+        f.functionOutput.append("\n%"+(++f.regId)+" = alloca [20 x i8], align 1");
+        stringArrPointer=f.regId;
+        f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds [20 x i8], [20 x i8]* %"+stringArrPointer+" , i32 0, i32 0");
+        stringGepPointer=f.regId;
+        f.functionOutput.append("\n%"+(++f.regId)+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 "+e.getReg()+")");
+        f.functionOutput.append("\n%"+(++f.regId)+" = call i8* (i8*,i8*) @strcat(i8* %"+i+",i8* %"+(stringGepPointer)+")");
+    }
+    else{
+        outputBuffer.append("\n%"+(++regid)+" = alloca [20 x i8], align 1");
+        stringArrPointer=regid;
+        outputBuffer.append("\n%"+(++regid)+" = getelementptr inbounds [20 x i8], [20 x i8]* %"+stringArrPointer+" , i32 0, i32 0");
+        stringGepPointer=regid;
+        outputBuffer.append("\n%"+(++regid)+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 "+e.getReg()+")");
+        outputBuffer.append("\n%"+(++regid)+" = call i8* (i8*,i8*) @strcat(i8* %"+i+",i8* %"+(stringGepPointer)+")");
+    }
+    RESULT=i;
+:}| EXP:e STRINGVALI:s {:
+    int stringArrPointer;
+    int stringGepPointer;
+    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+s.length()+" x i8] c\""+s+"\"");
+    if(inFunction){
+        Function f=functions.get(functionName);
+        f.functionOutput.append("\n%"+(++f.regId)+" = alloca [150 x i8], align 1");
+        stringArrPointer=f.regId;
+        f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds [150 x i8], [150 x i8]* %"+stringArrPointer+" , i32 0, i32 0");
+        stringGepPointer=f.regId;
+        f.functionOutput.append("\n%"+(++f.regId)+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 "+e.getReg()+")");
+        f.functionOutput.append("\n%"+(++f.regId)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+s.length()+" x i8] ["+s.length()+" x i8]* @"+stringIndex+" , i32 0, i32 0)");
+    }
+    else{
+        outputBuffer.append("\n%"+(++regid)+" = alloca [150 x i8], align 1");
+        stringArrPointer=regid;
+        outputBuffer.append("\n%"+(++regid)+" = getelementptr inbounds [150 x i8], [150 x i8]* %"+stringArrPointer+" , i32 0, i32 0");
+        stringGepPointer=regid;
+        outputBuffer.append("\n%"+(++regid)+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 "+e.getReg()+")");
+        outputBuffer.append("\n%"+(++regid)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+s.length()+" x i8] ["+s.length()+" x i8]* @"+stringIndex+" , i32 0, i32 0)");
+    }
+    RESULT=stringGepPointer;
+:}| EXP:e {:
+    int stringArrPointer;
+    int stringGepPointer;
+    if(inFunction){
+        Function f=functions.get(functionName);
+        f.functionOutput.append("\n%"+(++f.regId)+" = alloca [20 x i8], align 1");
+        stringArrPointer=f.regId;
+        f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds [20 x i8], [20 x i8]* %"+stringArrPointer+" , i32 0, i32 0");
+        stringGepPointer=f.regId;
+        f.functionOutput.append("\n%"+(++f.regId)+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 "+e.getReg()+")");
+    }
+    else{
+        outputBuffer.append("\n%"+(++regid)+" = alloca [20 x i8], align 1");
+        stringArrPointer=regid;
+        outputBuffer.append("\n%"+(++regid)+" = getelementptr inbounds [20 x i8], [20 x i8]* %"+stringArrPointer+" , i32 0, i32 0");
+        stringGepPointer=regid;
+        outputBuffer.append("\n%"+(++regid)+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 "+e.getReg()+")");
+    }
+    RESULT=stringGepPointer;
+:};
+
+ARRVAL::= QO ATTRL QC;
+
+DICTVAL::= QO ATTRL COL ATTRL QC;
+
+ATTRL::= ATTRL C ATTR | ATTR | ;
+
+TList::= QO TList:t QC {:
+    t.addArrLevel();
+    RESULT=t;
+:}| T:t {:RESULT=t;:};
+
+T::=STRING {:RESULT=new Value(8,true);:}| DOUBLE {:RESULT=new Value(false);:}| INT{:RESULT=new Value(32,false);:} | ID:name {:
+    boolean cont=false;
+    for (String key : classes.keySet()) {
+        if (name.contains(key)) {
+            cont=true;
+            break;
+        }
+    }
+    if(!cont){
+        errors=true;
+        errorBuffer.append("Tried to assign a non specified type to a variable");
+    }
+    else    RESULT=new Value(classes.get(name));
+:};
+
+//assignment
+
+ASS::= ID:a EQ EXP:e {:
+    String type=getVarIrDec(a);
+    if(!e.type.equals(type)){
+        System.out.println("\t\t\tERRORRRRR IN ASSINGMENT");
+    }
+    System.out.println("\n\tInside ASSIGNMENT;  with exp: "+e);
+    if(inFunction)  functions.get(functionName).functionOutput.append("\nstore "+type+" "+e.getReg()+","+type+"* "+getRegVar(a));
+    else    outputBuffer.append("\nstore "+type+" "+e.getReg()+","+type+"* "+getRegVar(a));
+:};
+
+EXP::= EXP:e OP:op ATTR:a {:
+    int id;
+    /*if(!e.type.equals(a.type)){
+        System.out.println("Error in EXP because of type, e has type: "+e.type+" , while a has type: "+a.type);
+        errorBuffer.append("Error in exp");
+    }
+    else{*/
+        if(inFunction){
+            Function f=functions.get(functionName);
+            f.functionOutput.append("\n%"+(++f.regId)+"= "+getIrOp(op,e.type)+" "+e.type+" ");
+            if(e.immediate) f.functionOutput.append(e.immediateValue);
+            else f.functionOutput.append(e.getReg());
+            f.functionOutput.append(",");
+            if(a.immediate) f.functionOutput.append(a.immediateValue);
+            else f.functionOutput.append(a.getReg());
+            id=f.regId;
+        }
+        else{
+            outputBuffer.append("\n%"+(++regid)+"= "+getIrOp(op,e.type)+" "+e.type+" ");
+            if(e.immediate) outputBuffer.append(e.immediateValue);
+            else outputBuffer.append(e.getReg());
+            outputBuffer.append(",");
+            if(a.immediate) outputBuffer.append(a.immediateValue);
+            else outputBuffer.append(a.getReg());
+            id=regid;
+        }
+    //}
+    RESULT=new Attribute(e.type,regid);
+:}| ATTR:a {:
+    RESULT=a;
+:}| MINUS EXP:e %prec uminus;
+
+ATTR::= PROC:p {:
+    RESULT=p;
+:} | ID:i {:
+    String type=getVarIrDec(i);
+    int id;
+    if(inFunction){
+        Function f=functions.get(functionName);
+        f.functionOutput.append("\n%"+(++f.regId)+"= load "+type+","+type+"* "+getRegVar(i));
+        id=f.regId;
+    }
+    else{
+        outputBuffer.append("\n%"+(++regid)+"= load "+type+","+type+"* "+getRegVar(i));
+        id=regid;
+    }
+    RESULT=new Attribute(type,id);
+:} | VAL:v {:
+    RESULT=new Attribute(v.value,v.irDec());
+:};
+
+OP::= PLUS {:RESULT=operations.ADD;:} | MINUS {:RESULT=operations.SUB;:} | DIV {:RESULT=operations.DIV;:} | MUL {:RESULT=operations.MUL;:};
+
+//statements
+
+STMS::= STMS STM | STM;
+
+STM::=ASS | PROC | DEC | FUNCTION | IFCOND | WHILECOND | FORCOND | CLASSDEF;
+
+PROC::= ID BO CPARlist BC;
+
+CPARlist::= CPARlist C CPAR | CPAR;
+
+CPAR::= ID COL ID | ID COL VAL | ID | VAL;
+
+//control loop blocks
+
+IFCOND::= IF COND GO STMS GC ELIFBLOCK;
+
+ELIFBLOCK::= ELIFBLOCK ELIF COND GO STMS GC| ELSE GO STMS GC | ;
+
+WHILECOND::= WHILE COND GO STMS GC;
+
+FORCOND::= FOR ID IN RANGE GO STMS GC;
+
+RANGE::= ID | INTVAL DOT DOT DOT INTVAL | INTVAL DOT DOT LESS INTVAL | ID DOT DOT DOT ID | ID DOT DOT LESS ID | ID DOT DOT DOT INTVAL | ID DOT DOT LESS INTVAL | INTVAL DOT DOT DOT ID | INTVAL DOT DOT LESS ID | STRINGVAL;
+
+COND::= COND AND CONDATTR | COND OR CONDATTR | CONDATTR;
+
+CONDATTR::= ATTR CONDOP ATTR | NOT ATTR;
+
+CONDOP::= LESS | GREATER | LESSEQ | GREATEREQ | EQUAL;
+
+//function declaration
+
+FUNCTION::=FUNCDef:f GO FSTMTS GC {:
+    outputBuffer.append("{\n"+f.functionOutput+"\n}");
+    inFunction=false;
+    functionName="";
+:};
+
+FUNCDef::=FUNC ID:name BO PARlist:l BC RETVAL:r{:
+    inFunction=true;
+    functionName=name;
+    System.out.println("Function "+name+" found!");
+    outputBuffer.append("\ndefine "+r+" @"+name+" ("+l.stream().map(e->e.type.irDec()).collect(Collectors.joining(","))+")");
+    Function f=new Function(name,r,l);
+    functions.put(name,f);
+    RESULT=f;
+:};
+
+RETVAL::=ARROW T:t {:RESULT=t.irDec();:}| {:RESULT="void";:};
+
+PARlist::= PARlist:l C PAR:p {:
+    l.add(p);
+    RESULT=l;
+:}| PAR:p{:
+    ArrayList<Parameter> l=new ArrayList<Parameter>();
+    l.add(p);
+    RESULT=l;
+:};
+
+PAR::= ID:label ID:name FTYPE:f {:RESULT=new Parameter(f.inout,name,f.value,label);:}| ID:name FTYPE:f {:RESULT=new Parameter(f.inout,name,f.value,name);:}| USCORE ID:name FTYPE:f{:RESULT=new Parameter(f.inout,name,f.value);:};
+ 
+FTYPE::= COL INOUTF:i TList:t {:RESULT=new FValue(i,t);:}| COL INOUTF:i TList:t EQ VAL{:RESULT=new FValue(i,t);:};
+
+INOUTF::=INOUT {:RESULT=true;:} | {:RESULT=false;:};
+
+FSTMTS::= FSTMTS STM | STM;
+
+//Class parser
+
+CLASSDEF::= CLASS ID GO CSTMTS GC;
+
+CSTMTS::= CSTMTS STM {: System.out.println("\tPARSER:: Found new class statement"); :}| STM {: System.out.println("\tPARSER:: Found new class statement"); :};
