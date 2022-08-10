@@ -13,7 +13,7 @@ double = [+-]? ((([0-9]+\.[0-9]*) | ([0-9]*\.[0-9]+)) (e|E('+'|'-')?[0-9]+)?)
 string= \"[a-zA-Z0-9\_]*\"
 stringInterpolationStart=\"[^\"\(\)]*\\\(
 stringInterpolationIntermediate=\)[^\"\(\)]*\\\(
-stringInterpolationEnd=\)[^\"\(\)]*\"
+stringInterpolationEnd=\)[^\"\(\)\r\n\t]*\"
 nl = \r|\n|\r\n
 ws = [ \t]
 %{
@@ -35,7 +35,8 @@ ws = [ \t]
 {string} { return symbol(sym.STRINGVAL,yytext().substring(1,yytext().length()-1)); }
 {stringInterpolationStart} { System.out.println("SCANNER :: STRINGVALSTART found: "+yytext().substring(1,yytext().length()-2));return symbol(sym.STRINGVALS,yytext().substring(1,yytext().length()-2)); }
 {stringInterpolationIntermediate} { System.out.println("SCANNER :: STRINGVALINTERMEDIATE found: "+yytext().substring(1,yytext().length()-2));return symbol(sym.STRINGVALI,yytext().substring(1,yytext().length()-2)); }
-{stringInterpolationEnd} { System.out.println("SCANNER :: STRINGVALEND found: "+yytext().substring(1,yytext().length()-1));return symbol(sym.STRINGVALE,yytext().substring(1,yytext().length()-1)); }
+{stringInterpolationEnd} { System.out.println("SCANNER :: STRINGVALEND found: "+yytext().substring(1,yytext().length()-1)); System.out.println("ORiginal value found: "+yytext());return symbol(sym.STRINGVALE,yytext().substring(1,yytext().length()-1)); }
+"print" { return symbol(sym.PRINT); }
 "inout" { return symbol(sym.INOUT); }
 "class" { return symbol(sym.CLASS); }
 "String" { return symbol(sym.STRING); }

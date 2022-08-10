@@ -57,7 +57,7 @@ parser code {:
         public StringBuffer functionOutput=new StringBuffer();
         public HashMap<String,Value> varMap=new HashMap<String,Value>();
         public HashMap<String,Value> letMap=new HashMap<String,Value>();
-        public int regId=(-1);
+        public int regId=0;
         public Function(String name,String retType,ArrayList<Parameter> pars){
             this.name=name;
             this.retType=retType;
@@ -126,10 +126,10 @@ parser code {:
         }
         public Value(int intSize,boolean pointer,Object value){
             this.integer=true;
-            this.sizeInt=sizeInt;
+            this.sizeInt=intSize;
             this.pointer=pointer;
             this.value=value;
-            this.array=true;
+            this.array=false;
         }
         public Value(boolean pointer){
             this.integer=false;
@@ -200,7 +200,7 @@ parser code {:
     public boolean errors=false;
     public HashMap<String,ClassType> classes=new HashMap<String,ClassType>();
     public HashMap<String,Function> functions=new HashMap<String,Function>();
-    public int regid=(-1);
+    public int regid=0;
     public int stringIndex=(-1);
     public boolean inFunction=false;
     public String functionName;
@@ -266,6 +266,7 @@ terminal PLUS,MINUS,DIV,MUL;
 terminal LESS,GREATER,LESSEQ,GREATEREQ,AND,OR,EQUAL,NOT;
 terminal ELIF,ELSE,IF,FOR,IN,WHILE,DOT;
 terminal QO,QC,INOUT,CLASS;
+terminal PRINT;
 terminal uminus;
 
 non terminal PROG,DEC,IDINITlist,INIT;
@@ -283,9 +284,10 @@ non terminal ArrayList<Parameter> PARlist,CPARlist;
 non terminal String RETVAL;
 non terminal FValue FTYPE;
 non terminal Boolean INOUTF;
-non terminal String STR;
+non terminal Integer STR;
 non terminal Integer STRINGVALINTERP;
 non terminal Function FUNCDef;
+non terminal ArrayList<Integer> PRINTPARList;
 
 precedence left PLUS,MINUS;
 precedence left MUL,DIV;
@@ -350,10 +352,21 @@ TYPE::= COL TList:t {:RESULT=t;:}| COL TList:t EQ VAL:v {:
 VAL::= DOUBLEVAL:v {:RESULT=new Value(false,v);:}| INTVAL:v {:RESULT=new Value(32,false,v);:}| STR:v {:RESULT=new Value(8,true,v);:}| ARRVAL | DICTVAL;
 
 STR::= STRINGVAL:s {:
-    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+s.length()+" x i8] c\""+s+"\"");
+    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(s.length()+1)+" x i8] c\""+s+"\\00\"");
+    int id;
+    if(inFunction){
+        Function f=functions.get(functionName);
+        f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds ["+s.length()+" x i8], ["+s.length()+" x i8]* @.str."+stringIndex+" , i32 0, i32 0");
+        id=f.regId;
+    }
+    else{
+        outputBuffer.append("\n%"+(++regid)+" = getelementptr inbounds ["+s.length()+" x i8], ["+s.length()+" x i8]* @.str."+stringIndex+" , i32 0, i32 0");
+        id=regid;
+    }
+    RESULT=id;
 :}| STRINGVALS:s STRINGVALINTERP:i STRINGVALE:e{:
-    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+s.length()+" x i8] c\""+s+"\"");
-    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+e.length()+" x i8] c\""+e+"\"");
+    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(s.length()+1)+" x i8] c\""+s+"\\00\"");
+    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(e.length()+1)+" x i8] c\""+e+"\\00\"");
     int stringArrPointer;
     int stringGepPointer;
     if(inFunction){
@@ -362,20 +375,20 @@ STR::= STRINGVAL:s {:
         stringArrPointer=f.regId;
         f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds [200 x i8], [200 x i8]* %"+stringArrPointer+" , i32 0, i32 0");
         stringGepPointer=f.regId;
-        f.functionOutput.append("\n%"+(++f.regId)+" = call i8* (i8*,i8*) @strcpy(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+s.length()+" x i8], ["+s.length()+" x i8]* @.str."+(stringIndex-1)+", i32 0, i32 0))");
+        f.functionOutput.append("\n%"+(++f.regId)+" = call i8* (i8*,i8*) @strcpy(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+(s.length()+1)+" x i8], ["+(s.length()+1)+" x i8]* @.str."+(stringIndex-1)+", i32 0, i32 0))");
         f.functionOutput.append("\n%"+(++f.regId)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* %"+i+")");
-        f.functionOutput.append("\n%"+(++f.regId)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+e.length()+" x i8], ["+e.length()+" x i8]* @.str."+stringIndex+" , i32 0, i32 0))");
+        f.functionOutput.append("\n%"+(++f.regId)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+(e.length()+1)+" x i8], ["+(e.length()+1)+" x i8]* @.str."+stringIndex+" , i32 0, i32 0))");
     }
     else{
         outputBuffer.append("\n%"+(++regid)+" = alloca [200 x i8], align 1");
         stringArrPointer=regid;
         outputBuffer.append("\n%"+(++regid)+" = getelementptr inbounds [200 x i8], [200 x i8]* %"+stringArrPointer+" , i32 0, i32 0");
         stringGepPointer=regid;
-        outputBuffer.append("\n%"+(++regid)+" = call i8* (i8*,i8*) @strcpy(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+s.length()+" x i8], ["+s.length()+" x i8]* @.str."+(stringIndex-1)+", i32 0, i32 0))");
+        outputBuffer.append("\n%"+(++regid)+" = call i8* (i8*,i8*) @strcpy(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+(s.length()+1)+" x i8], ["+(s.length()+1)+" x i8]* @.str."+(stringIndex-1)+", i32 0, i32 0))");
         outputBuffer.append("\n%"+(++regid)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* %"+i+")");
-        outputBuffer.append("\n%"+(++regid)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+e.length()+" x i8], ["+e.length()+" x i8]* @.str."+stringIndex+" , i32 0, i32 0))");
+        outputBuffer.append("\n%"+(++regid)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+(e.length()+1)+" x i8], ["+(e.length()+1)+" x i8]* @.str."+stringIndex+" , i32 0, i32 0))");
     }
-    //RESULT=stringGepPointer;
+    RESULT=stringGepPointer;
 :};
 
 STRINGVALINTERP::= STRINGVALINTERP:i EXP:e {:
@@ -402,7 +415,7 @@ STRINGVALINTERP::= STRINGVALINTERP:i EXP:e {:
 :}| EXP:e STRINGVALI:s {:
     int stringArrPointer;
     int stringGepPointer;
-    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+s.length()+" x i8] c\""+s+"\"");
+    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(s.length()+1)+" x i8] c\""+s+"\\00\"");
     if(inFunction){
         Function f=functions.get(functionName);
         f.functionOutput.append("\n%"+(++f.regId)+" = alloca [150 x i8], align 1");
@@ -410,7 +423,7 @@ STRINGVALINTERP::= STRINGVALINTERP:i EXP:e {:
         f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds [150 x i8], [150 x i8]* %"+stringArrPointer+" , i32 0, i32 0");
         stringGepPointer=f.regId;
         f.functionOutput.append("\n%"+(++f.regId)+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 "+e.getReg()+")");
-        f.functionOutput.append("\n%"+(++f.regId)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+s.length()+" x i8] ["+s.length()+" x i8]* @"+stringIndex+" , i32 0, i32 0)");
+        f.functionOutput.append("\n%"+(++f.regId)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+(s.length()+1)+" x i8] ["+(s.length()+1)+" x i8]* @.str."+stringIndex+" , i32 0, i32 0)");
     }
     else{
         outputBuffer.append("\n%"+(++regid)+" = alloca [150 x i8], align 1");
@@ -418,7 +431,7 @@ STRINGVALINTERP::= STRINGVALINTERP:i EXP:e {:
         outputBuffer.append("\n%"+(++regid)+" = getelementptr inbounds [150 x i8], [150 x i8]* %"+stringArrPointer+" , i32 0, i32 0");
         stringGepPointer=regid;
         outputBuffer.append("\n%"+(++regid)+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 "+e.getReg()+")");
-        outputBuffer.append("\n%"+(++regid)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+s.length()+" x i8] ["+s.length()+" x i8]* @"+stringIndex+" , i32 0, i32 0)");
+        outputBuffer.append("\n%"+(++regid)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+(s.length()+1)+" x i8] ["+(s.length()+1)+" x i8]* @"+stringIndex+" , i32 0, i32 0)");
     }
     RESULT=stringGepPointer;
 :}| EXP:e {:
@@ -539,7 +552,26 @@ STMS::= STMS STM | STM;
 
 STM::=ASS | PROC | DEC | FUNCTION | IFCOND | WHILECOND | FORCOND | CLASSDEF;
 
-PROC::= ID BO CPARlist BC;
+PROC::= ID:name BO CPARlist BC | PRINT BO PRINTPARList:l BC{:
+    if(inFunction){
+        Function f=functions.get(functionName);
+        l.forEach(p->f.functionOutput.append("\n%"+(++f.regId)+" = call i32 (i8*, ...) @printf(i8* %"+p+")"));
+        f.functionOutput.append("\n%"+(++f.regId)+" = call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8], [2 x i8]* @.str.newline, i32 0, i32 0)");
+    }
+    else{
+        l.forEach(p->outputBuffer.append("\n%"+(++regid)+" = call i32 (i8*, ...) @printf(i8* %"+p+")"));
+        outputBuffer.append("\n%"+(++regid)+" = call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8], [2 x i8]* @.str.newline, i32 0, i32 0)");
+    }
+:};
+
+PRINTPARList::= PRINTPARList:l C STR:s {:
+    l.add(s);
+    RESULT=l;
+:}| STR:s{:
+    ArrayList<Integer> pointers=new ArrayList<Integer>();
+    pointers.add(s);
+    RESULT=pointers;
+:};
 
 CPARlist::= CPARlist C CPAR | CPAR;
 
@@ -586,9 +618,8 @@ RETVAL::=ARROW T:t {:RESULT=t.irDec();:}| {:RESULT="void";:};
 PARlist::= PARlist:l C PAR:p {:
     l.add(p);
     RESULT=l;
-:}| PAR:p{:
+:}| {:
     ArrayList<Parameter> l=new ArrayList<Parameter>();
-    l.add(p);
     RESULT=l;
 :};
 
