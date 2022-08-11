@@ -63,6 +63,9 @@ parser code {:
             this.retType=retType;
             this.pars=pars;
         }
+        public String irDec(){
+            return retType+" ("+pars.stream().map(e->e.type.irDec()).collect(Collectors.joining(","))+") @"+name;
+        }
     }
     /*public class Variable{
         public String name;
@@ -272,15 +275,17 @@ terminal uminus;
 non terminal PROG,DEC,IDINITlist,INIT;
 non terminal ASS,STMS,STM,FUNCTION,FSTMTS;
 non terminal IFCOND,WHILECOND,FORCOND,RANGE,COND,CONDATTR,CONDOP,ELIFBLOCK;
-non terminal ARRVAL,DICTVAL,ATTRL;
+non terminal ARRVAL,ATTRL;
 non terminal CLASSDEF,CSTMTS;
 non terminal ArrayList<String> IDlist;
 non terminal Value TYPE,VAL;
 non terminal Value TList,T;
 non terminal operations OP;
 non terminal Attribute ATTR,EXP,PROC;
-non terminal Parameter PAR,CPAR;
-non terminal ArrayList<Parameter> PARlist,CPARlist;
+non terminal Parameter PAR;
+non terminal ArrayList<Parameter> PARlist;
+non terminal Attribute CPAR;
+non terminal ArrayList<Attribute> CPARlist;
 non terminal String RETVAL;
 non terminal FValue FTYPE;
 non terminal Boolean INOUTF;
@@ -349,7 +354,7 @@ TYPE::= COL TList:t {:RESULT=t;:}| COL TList:t EQ VAL:v {:
     RESULT=t;
 :};
 
-VAL::= DOUBLEVAL:v {:RESULT=new Value(false,v);:}| INTVAL:v {:RESULT=new Value(32,false,v);:}| STR:v {:RESULT=new Value(8,true,v);:}| ARRVAL | DICTVAL;
+VAL::= DOUBLEVAL:v {:RESULT=new Value(false,v);:}| INTVAL:v {:RESULT=new Value(32,false,v);:}| STR:v {:RESULT=new Value(8,true,v);:}| ARRVAL;
 
 STR::= STRINGVAL:s {:
     globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(s.length()+1)+" x i8] c\""+s+"\\00\"");
@@ -457,8 +462,6 @@ STRINGVALINTERP::= STRINGVALINTERP:i EXP:e {:
 
 ARRVAL::= QO ATTRL QC;
 
-DICTVAL::= QO ATTRL COL ATTRL QC;
-
 ATTRL::= ATTRL C ATTR | ATTR | ;
 
 TList::= QO TList:t QC {:
@@ -542,7 +545,17 @@ ATTR::= PROC:p {:
     RESULT=new Attribute(type,id);
 :} | VAL:v {:
     RESULT=new Attribute(v.value,v.irDec());
-:};
+:} | IDARR:i {::} ;
+
+IDARR::= IDARR:i QO ATTR:a QC {:
+    Function f=functions.get(functionName);
+    f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds "+i.type+","+i.type+"* "+i.getReg()+", i32 0, i32 "+a.getReg());
+    RESULT=new Attribute(i.getReg().substring(1,i.getReg().length()-1).substring(i.getReg().substring(1,i.getReg().length()-1).indexOf("[")),f.regId);
+:} | ID:i QO ATTR:a QC {:
+    Function f=functions.get(functionName);
+    f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds "+getReg(i)+","+getReg(i)+"* "+getRegVar(i)+", i32 0, i32 "+a.getReg());
+    RESULT=new Attribute(getReg(i).substring(1,getReg(i).length()-1).substring(getReg(i).substring(1,getReg(i).length()-1).indexOf("[")),f.regId);
+:} ;
 
 OP::= PLUS {:RESULT=operations.ADD;:} | MINUS {:RESULT=operations.SUB;:} | DIV {:RESULT=operations.DIV;:} | MUL {:RESULT=operations.MUL;:};
 
@@ -552,7 +565,29 @@ STMS::= STMS STM | STM;
 
 STM::=ASS | PROC | DEC | FUNCTION | IFCOND | WHILECOND | FORCOND | CLASSDEF;
 
-PROC::= ID:name BO CPARlist BC | PRINT BO PRINTPARList:l BC{:
+PROC::= ID:name BO CPARlist:l BC {:
+    Function f=functions.get(name);
+    int id=0;
+    if(f.retType.equals("void")){
+        if(inFunction){
+            Function o=functions.get(functionName);
+            o.functionOutput.append("\ncall "+f.irDec()+"("+l.stream().map(e->e.type+" "+e.getReg()).collect(Collectors.joining(","))+")");
+        }
+        else    outputBuffer.append("\ncall "+f.irDec()+"("+l.stream().map(e->e.type+" "+e.getReg()).collect(Collectors.joining(","))+")");
+    }
+    else{
+        if(inFunction){
+            Function o=functions.get(functionName);
+            o.functionOutput.append("\n%"+(++o.regId)+"=call "+f.irDec()+"("+l.stream().map(e->e.type+" "+e.getReg()).collect(Collectors.joining(","))+")");
+            id=o.regId;
+        }
+        else{
+            outputBuffer.append("\n%"+(++regid)+"=call "+f.irDec()+"("+l.stream().map(e->e.type+" "+e.getReg()).collect(Collectors.joining(","))+")");
+            id=regid;
+        }
+    }
+    RESULT=new Attribute(f.retType,id);
+:} | PRINT BO PRINTPARList:l BC{:
     if(inFunction){
         Function f=functions.get(functionName);
         l.forEach(p->f.functionOutput.append("\n%"+(++f.regId)+" = call i32 (i8*, ...) @printf(i8* %"+p+")"));
@@ -573,9 +608,17 @@ PRINTPARList::= PRINTPARList:l C STR:s {:
     RESULT=pointers;
 :};
 
-CPARlist::= CPARlist C CPAR | CPAR;
+CPARlist::= CPARlist:l C CPAR:p {:
+    l.add(p);
+    RESULT=l;
+:} | CPAR:p {:
+    ArrayList<Attribute> l=new ArrayList<Attribute>();
+    l.add(p);
+    RESULT=l;
+:};
 
-CPAR::= ID COL ID | ID COL VAL | ID | VAL;
+CPAR::= ID:name COL EXP:e {:RESULT=e;:} | EXP:e {:RESULT=e;:} ;
+
 
 //control loop blocks
 
@@ -607,9 +650,27 @@ FUNCDef::=FUNC ID:name BO PARlist:l BC RETVAL:r{:
     inFunction=true;
     functionName=name;
     System.out.println("Function "+name+" found!");
-    outputBuffer.append("\ndefine "+r+" @"+name+" ("+l.stream().map(e->e.type.irDec()).collect(Collectors.joining(","))+")");
+    outputBuffer.append("\ndefine "+r+" @"+name+" ("+l.stream().map(e->e.type.irDec()+" %"+e.name).collect(Collectors.joining(","))+")");
     Function f=new Function(name,r,l);
     functions.put(name,f);
+    l.forEach(e->{
+        if(!e.inout){
+            f.functionOutput.append("\n%"+(++f.regId)+" = alloca "+e.type.irDec());
+            Value v=new Value(e.type);
+            v.setReg(f.regId);
+            f.functionOutput.append("\nstore "+e.type.irDec()+" %"+e.name+", "+e.type.irDec()+"* %"+f.regId);
+            f.letMap.put(e.name,v);
+        }
+        else{
+            f.functionOutput.append("\n%"+(++f.regId)+" = alloca "+e.type.irDec()+"*");
+            int reg=f.regId;
+            f.functionOutput.append("\nstore "+e.type.irDec()+" %"+e.name+", "+e.type.irDec()+"* %"+f.regId);
+            f.functionOutput.append("\n%"+(++f.regId)+" = load "+e.type.irDec()+"*,"+e.type.irDec()+"** %"+f.regId);
+            Value v=new Value(e.type);
+            v.setReg(f.regId);
+            f.varMap.put(e.name,v);
+        }
+    });
     RESULT=f;
 :};
 
@@ -618,7 +679,11 @@ RETVAL::=ARROW T:t {:RESULT=t.irDec();:}| {:RESULT="void";:};
 PARlist::= PARlist:l C PAR:p {:
     l.add(p);
     RESULT=l;
-:}| {:
+:}| PAR:p {:
+    ArrayList<Parameter> l=new ArrayList<Parameter>();
+    l.add(p);
+    RESULT=l;
+:} | {:
     ArrayList<Parameter> l=new ArrayList<Parameter>();
     RESULT=l;
 :};

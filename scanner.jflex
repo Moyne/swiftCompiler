@@ -32,10 +32,10 @@ ws = [ \t]
 "-" { return symbol(sym.MINUS); }
 {double} { System.out.println("SCANNER :: DOUBLE found: "+yytext());return symbol(sym.DOUBLEVAL,new Double(yytext())); }
 {int} { System.out.println("SCANNER :: INT found: "+yytext());return symbol(sym.INTVAL,new Integer(yytext())); }
-{string} { return symbol(sym.STRINGVAL,yytext().substring(1,yytext().length()-1)); }
-{stringInterpolationStart} { System.out.println("SCANNER :: STRINGVALSTART found: "+yytext().substring(1,yytext().length()-2));return symbol(sym.STRINGVALS,yytext().substring(1,yytext().length()-2)); }
-{stringInterpolationIntermediate} { System.out.println("SCANNER :: STRINGVALINTERMEDIATE found: "+yytext().substring(1,yytext().length()-2));return symbol(sym.STRINGVALI,yytext().substring(1,yytext().length()-2)); }
-{stringInterpolationEnd} { System.out.println("SCANNER :: STRINGVALEND found: "+yytext().substring(1,yytext().length()-1)); System.out.println("ORiginal value found: "+yytext());return symbol(sym.STRINGVALE,yytext().substring(1,yytext().length()-1)); }
+{string} { return symbol(sym.STRINGVAL,yytext().substring(1,yytext().length()-1).replace("\n","\\"+"0A")); }
+{stringInterpolationStart} { System.out.println("SCANNER :: STRINGVALSTART found: "+yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A"));return symbol(sym.STRINGVALS,yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A")); }
+{stringInterpolationIntermediate} { System.out.println("SCANNER :: STRINGVALINTERMEDIATE found: "+yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A"));return symbol(sym.STRINGVALI,yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A")); }
+{stringInterpolationEnd} { System.out.println("SCANNER :: STRINGVALEND found: "+yytext().substring(1,yytext().length()-1).replace("\n","\\"+"0A")); System.out.println("ORiginal value found: "+yytext());return symbol(sym.STRINGVALE,yytext().substring(1,yytext().length()-1).replace("\n","\\"+"0A")); }
 "print" { return symbol(sym.PRINT); }
 "inout" { return symbol(sym.INOUT); }
 "class" { return symbol(sym.CLASS); }
