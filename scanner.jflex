@@ -30,12 +30,12 @@ ws = [ \t]
 "*" { return symbol(sym.MUL); }
 "/" { return symbol(sym.DIV); }
 "-" { return symbol(sym.MINUS); }
-{double} { System.out.println("SCANNER :: DOUBLE found: "+yytext());return symbol(sym.DOUBLEVAL,new Double(yytext())); }
-{int} { System.out.println("SCANNER :: INT found: "+yytext());return symbol(sym.INTVAL,new Integer(yytext())); }
+{double} { return symbol(sym.DOUBLEVAL,new Double(yytext())); }
+{int} { return symbol(sym.INTVAL,new Integer(yytext())); }
 {string} { return symbol(sym.STRINGVAL,yytext().substring(1,yytext().length()-1).replace("\n","\\"+"0A")); }
-{stringInterpolationStart} { System.out.println("SCANNER :: STRINGVALSTART found: "+yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A"));return symbol(sym.STRINGVALS,yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A")); }
-{stringInterpolationIntermediate} { System.out.println("SCANNER :: STRINGVALINTERMEDIATE found: "+yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A"));return symbol(sym.STRINGVALI,yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A")); }
-{stringInterpolationEnd} { System.out.println("SCANNER :: STRINGVALEND found: "+yytext().substring(1,yytext().length()-1).replace("\n","\\"+"0A")); System.out.println("ORiginal value found: "+yytext());return symbol(sym.STRINGVALE,yytext().substring(1,yytext().length()-1).replace("\n","\\"+"0A")); }
+{stringInterpolationStart} { return symbol(sym.STRINGVALS,yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A")); }
+{stringInterpolationIntermediate} { return symbol(sym.STRINGVALI,yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A")); }
+{stringInterpolationEnd} { return symbol(sym.STRINGVALE,yytext().substring(1,yytext().length()-1).replace("\n","\\"+"0A")); }
 "print" { return symbol(sym.PRINT); }
 "inout" { return symbol(sym.INOUT); }
 "class" { return symbol(sym.CLASS); }
@@ -44,8 +44,8 @@ ws = [ \t]
 "Int" { return symbol(sym.INT); }
 "let" { return symbol(sym.LET); }
 "var" { return symbol(sym.VAR); }
-"func" { System.out.println("SCANNER :: FUNC found");return symbol(sym.FUNC); }
-"->" { System.out.println("SCANNER :: -> found");return symbol(sym.ARROW); }
+"func" { return symbol(sym.FUNC); }
+"->" { return symbol(sym.ARROW); }
 "for" { return symbol(sym.FOR); }
 "while" { return symbol(sym.WHILE); }
 "in" { return symbol(sym.IN); }
@@ -55,10 +55,10 @@ ws = [ \t]
 "," { return symbol(sym.C); }
 "=" { return symbol(sym.EQ); }
 ":" { return symbol(sym.COL); }
-"(" { System.out.println("SCANNER :: ( found");return symbol(sym.BO); }
-")" { System.out.println("SCANNER :: ) found");return symbol(sym.BC); }
-"{" { System.out.println("SCANNER :: { found");return symbol(sym.GO); }
-"}" { System.out.println("SCANNER :: } found");return symbol(sym.GC); }
+"(" { return symbol(sym.BO); }
+")" { return symbol(sym.BC); }
+"{" { return symbol(sym.GO); }
+"}" { return symbol(sym.GC); }
 "==" { return symbol(sym.EQUAL); }
 ">" { return symbol(sym.GREATER); }
 ">=" { return symbol(sym.GREATEREQ); }
@@ -67,11 +67,11 @@ ws = [ \t]
 "&&" { return symbol(sym.AND); }
 "||" { return symbol(sym.OR); }
 "!" { return symbol(sym.NOT); }
-"." { System.out.println("SCANNER ::  found");return symbol(sym.DOT); }
+"." { return symbol(sym.DOT); }
 "[" { return symbol(sym.QO); }
 "]" { return symbol(sym.QC); }
-"_" { System.out.println("SCANNER :: _ found");return symbol(sym.USCORE); }
-{id} { System.out.println("SCANNER :: ID found: "+yytext());return symbol(sym.ID,yytext()); }
+"_" { return symbol(sym.USCORE); }
+{id} { return symbol(sym.ID,yytext()); }
 {ws}|{nl}       {;}
 "/*" ~ "*/"     {;}
 . {System.out.println("SCANNER ERROR: "+yytext());}

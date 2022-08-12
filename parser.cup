@@ -10,7 +10,12 @@ parser code {:
         ADD,
         MUL,
         DIV,
-        SUB
+        SUB,
+        LESS,
+        GRT,
+        LSE,
+        GRE,
+        EQ
     };
     public class FValue{
         public boolean inout;
@@ -96,7 +101,55 @@ parser code {:
             this.regId=regId;
         }
         public String getReg(){
-            return "%"+this.regId;
+            if(this.immediate) return this.immediateValue.toString();
+            else    return "%"+this.regId;
+        }
+    }
+    public class ArrayDec{
+        public String type;
+        public ArrayList<Attribute> value;
+        public ArrayList<ArrayDec> arraysInside;
+        public boolean closed;
+        public boolean last;
+        public ArrayDec(String type,ArrayList<Attribute> value,boolean closed){
+            this.type=type;
+            this.value=value;
+            this.closed=closed;
+            this.last=true;
+        }
+        public ArrayDec(ArrayList<ArrayDec> arraysInside,String type,boolean closed){
+            this.type=type;
+            this.arraysInside=arraysInside;
+            this.closed=closed;
+            this.last=false;
+        }
+        public void close(){
+            this.type="["+arraysInside.size()+" x "+this.type+"]";
+            this.closed=true;
+        }
+        public int level(){
+            if(this.last) return 1;
+            else return this.arraysInside.get(0).level();
+        }
+        public String printValue(){
+            StringBuffer res=new StringBuffer();
+            res.append("[");
+            if(this.last){
+                for(int i=0;i<value.size();i++){
+                    res.append(value.get(i).immediateValue);
+                    if(i!=value.size()-1) res.append(",");
+                }
+                res.append("]");
+                return res.toString();
+            }
+            else{
+                for(int i=0;i<arraysInside.size();i++){
+                    res.append(arraysInside.get(i).printValue());
+                    if(i!=arraysInside.size()-1) res.append(",");
+                }
+                res.append("]");
+                return res.toString();
+            }
         }
     }
     public class Value{
@@ -110,6 +163,7 @@ parser code {:
         public int pointerAllocated=(-1);
         public boolean global=false;
         public String globalName;
+        public String constructorType="";
         public Value(Value o){
             this.integer=o.integer;
             this.pointer=o.pointer;
@@ -120,6 +174,13 @@ parser code {:
             this.value=o.value;
             this.pointerAllocated=o.pointerAllocated;
             this.global=o.global;
+        }
+        public Value(String type){
+            this.integer=false;
+            this.pointer=false;
+            this.array=true;
+            this.global=false;
+            this.constructorType=type;
         }
         public Value(int intSize,boolean pointer){
             this.integer=true;
@@ -183,11 +244,22 @@ parser code {:
             else return "%"+this.pointerAllocated;
         }
         public String irDec(){
+            if(this.constructorType.length()>0) return this.constructorType;
             StringBuffer type=new StringBuffer();
             if(integer) type.append("i"+sizeInt);
             else type.append("double");
             if(pointer) type.append("*");
-            if(array) return "["+((int)Math.pow(10,sizeArr))+" x "+type.toString()+"]";
+            if(array){
+                StringBuffer res=new StringBuffer();
+                for(int i=0;i<this.sizeArr;i++){
+                    res.append("[10 x ");
+                    if(i==this.sizeArr-1){
+                        res.append(type.toString());
+                        for(int j=0;j<this.sizeArr;j++) res.append("]");
+                    }
+                }
+                return res.toString();
+            }
             else return type.toString();
         }
         @Override
@@ -207,8 +279,11 @@ parser code {:
     public int stringIndex=(-1);
     public boolean inFunction=false;
     public String functionName;
+    public int currentIf=0;
+    public boolean inConditional=false;
     public String getIrOp(operations op,String type){
-        boolean integer=type=="i32";
+        boolean integer=type.equals("i32");
+        System.out.println("Inside getirop with type: "+type+" and operator : "+op+", is it integer? "+integer);
         if(op==operations.ADD){
             if(integer) return "add nsw";
             else return "fadd nsw";
@@ -228,6 +303,7 @@ parser code {:
         else return "NOT SUPPORTED";
     }
     public String getVarIrDec(String var){
+        System.out.println("Inside getvarirdec with: "+var+" and infunction? "+inFunction);
         if(inFunction){
             if(functions.get(functionName).varMap.containsKey(var)) return functions.get(functionName).varMap.get(var).irDec();
             else if(functions.get(functionName).letMap.containsKey(var)) return functions.get(functionName).letMap.get(var).irDec();
@@ -245,8 +321,47 @@ parser code {:
         else if(letMap.containsKey(var))    return letMap.get(var).getReg();
         else return "ERROR";
     }
+    public void storeRow(int i,ArrayDec a){
+        Function f=functions.get(functionName);
+        if(a.last){
+            for(int j=0;j<a.value.size();j++){
+                f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds "+a.type+","+a.type+"* %"+i+",i32 0,i32 "+j);
+                f.functionOutput.append("\nstore "+a.value.get(j).type+" "+a.value.get(j).getReg()+","+a.value.get(j).type+"* %"+f.regId);
+            }
+            return;
+        }
+        else{
+            for(int j=0;j<a.arraysInside.size();j++){
+                f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds "+a.type+","+a.type+"* %"+i+",i32 0,i32 "+j);
+                storeRow(f.regId,a.arraysInside.get(j));
+            }
+        }
+    }
+    public String getCondIrOp(operations cond,boolean integer){
+        if(cond==operations.LESS){
+            if(integer) return "slt";
+            else return "olt";
+        }
+        else if(cond==operations.GRT){
+            if(integer) return "sgt";
+            else return "ogt";
+        }
+        else if(cond==operations.LSE){
+            if(integer) return "sle";
+            else return "ole";
+        }
+        else if(cond==operations.GRE){
+            if(integer) return "sge";
+            else return "oge";
+        }
+        else if(cond==operations.EQ){
+            if(integer) return "eq";
+            else return "oeq";
+        }
+        else return "ERROR";
+    }
     public void report_error(String message, Object info) {
-        System.err.print("ERROR: Syntax error");
+        System.err.print("ERROR: Syntax error, BUT BEFORE HERE WAS THE MAIN CONTENT: "+functions.get("main").functionOutput.toString()+"\n\n");
         if (info instanceof Symbol)
             if (((Symbol)info).left != -1){
                 int line = (((Symbol)info).left)+1;
@@ -274,8 +389,8 @@ terminal uminus;
 
 non terminal PROG,DEC,IDINITlist,INIT;
 non terminal ASS,STMS,STM,FUNCTION,FSTMTS;
-non terminal IFCOND,WHILECOND,FORCOND,RANGE,COND,CONDATTR,CONDOP,ELIFBLOCK;
-non terminal ARRVAL,ATTRL;
+non terminal WHILECOND,FORCOND,RANGE;
+non terminal ATTRL;
 non terminal CLASSDEF,CSTMTS;
 non terminal ArrayList<String> IDlist;
 non terminal Value TYPE,VAL;
@@ -293,6 +408,14 @@ non terminal Integer STR;
 non terminal Integer STRINGVALINTERP;
 non terminal Function FUNCDef;
 non terminal ArrayList<Integer> PRINTPARList;
+non terminal Attribute  IDARR;
+non terminal ArrayDec ARRVALE,ARRVAL;
+non terminal ArrayList<Attribute> EXPL;
+non terminal Integer IFCONDDEC;
+non terminal Attribute IFCC,IFCOND;
+non terminal IFCOMPLETEBLOCK;
+non terminal Attribute CONDATTR,COND;
+non terminal operations CONDOP;
 
 precedence left PLUS,MINUS;
 precedence left MUL,DIV;
@@ -346,15 +469,23 @@ IDlist::= IDlist:l C ID:x {: ArrayList<String> arr= new ArrayList<String>(l);
 
 IDINITlist::= IDINITlist C INIT | INIT;
 
-INIT::= ID EQ VAL;
+INIT::= ID EQ VAL | ID:i EQ ARRVALE:l {:
+    Function f=functions.get(functionName);
+    System.out.println("Arrived at def of "+i+" that is arrval with type: "+l.type);
+    f.functionOutput.append("\n%"+(++f.regId)+" = alloca "+l.type);
+    storeRow(f.regId,l);
+    Value v=new Value(l.type);
+    v.setReg(f.regId);
+    f.varMap.put(i,v);
+:} ;
 
 TYPE::= COL TList:t {:RESULT=t;:}| COL TList:t EQ VAL:v {:
     /*if(t.equal(v)) RESULT=t;
     else System.out.println("\tPARSER:: ERROR FOUND ON DECLARATION;");*/
     RESULT=t;
-:};
+:} | COL TList:t EQ ARRVAL;
 
-VAL::= DOUBLEVAL:v {:RESULT=new Value(false,v);:}| INTVAL:v {:RESULT=new Value(32,false,v);:}| STR:v {:RESULT=new Value(8,true,v);:}| ARRVAL;
+VAL::= DOUBLEVAL:v {:RESULT=new Value(false,v);:}| INTVAL:v {:RESULT=new Value(32,false,v);:}| STR:v {:RESULT=new Value(8,true,v);:};
 
 STR::= STRINGVAL:s {:
     globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(s.length()+1)+" x i8] c\""+s+"\\00\"");
@@ -428,7 +559,7 @@ STRINGVALINTERP::= STRINGVALINTERP:i EXP:e {:
         f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds [150 x i8], [150 x i8]* %"+stringArrPointer+" , i32 0, i32 0");
         stringGepPointer=f.regId;
         f.functionOutput.append("\n%"+(++f.regId)+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 "+e.getReg()+")");
-        f.functionOutput.append("\n%"+(++f.regId)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+(s.length()+1)+" x i8] ["+(s.length()+1)+" x i8]* @.str."+stringIndex+" , i32 0, i32 0)");
+        f.functionOutput.append("\n%"+(++f.regId)+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+(s.length()+1)+" x i8], ["+(s.length()+1)+" x i8]* @.str."+stringIndex+" , i32 0, i32 0))");
     }
     else{
         outputBuffer.append("\n%"+(++regid)+" = alloca [150 x i8], align 1");
@@ -460,9 +591,63 @@ STRINGVALINTERP::= STRINGVALINTERP:i EXP:e {:
     RESULT=stringGepPointer;
 :};
 
-ARRVAL::= QO ATTRL QC;
+ARRVALE::= QO ARRVALE:l QC {:
+    System.out.println("Arrived at QO ARRVALE QC with type : "+l.type+" , and l has "+l.arraysInside.size()+" arrays inside, l is closed?"+l.closed);
+    l.close();
+    System.out.println("NOw type is : "+l.type);
+    RESULT=l;
+    System.out.println("res value: "+RESULT.printValue());
+:}| ARRVALE:l C ARRVALE:a {:
+    /*int alevel=a.level();
+    int llevel=l.level();
+    System.out.println("Arrived at ARRVALE C ARRVAL with l level: "+llevel+" , and a level: "+alevel);*/
+    System.out.println("l value: "+l.printValue());
+    System.out.println("a value: "+a.printValue());
+    if(!l.last){
+        System.out.println("L has "+l.arraysInside.size()+" arrays inside");
+    }
+    if(!a.last){
+        System.out.println("a has "+a.arraysInside.size()+" arrays inside");
+    }
+    if(l.closed && a.closed){
+        ArrayList<ArrayDec> arr=new ArrayList<ArrayDec>();
+        arr.add(l);
+        arr.add(a);
+        RESULT=new ArrayDec(arr,a.type,false);
+        System.out.println("Both are closed so CREATE NEW ARRDEC ENGLOBING THAT IS NOT CLOSED,"+RESULT);
+        System.out.println("NOw result has type : "+RESULT.type+" and is closed? "+RESULT.closed+", and has "+RESULT.arraysInside.size()+" arrays inside");
+        System.out.println("res value: "+RESULT.printValue());
+    }
+    else{
+        a.arraysInside.add(0,l);
+        RESULT=a;
+        System.out.println("ONE IS OPEN SO WE JUST NEED TO ADD TO THE OLD ENGLOBER "+RESULT);
+        System.out.println("NOw result has type : "+RESULT.type+" and is closed? "+RESULT.closed+", and has "+RESULT.arraysInside.size()+" arrays inside");
+        System.out.println("res value: "+RESULT.printValue());
 
-ATTRL::= ATTRL C ATTR | ATTR | ;
+    }
+:}| ARRVAL:a {:
+    //ArrayList<Attribute> l=new ArrayList<Attribute>();
+    //l.add(a);
+    //RESULT=l;
+    System.out.println("REDUCED ARRVAL INTO ARRVALE: "+a.printValue());
+    RESULT=a;
+:};
+
+ARRVAL::= QO EXPL:l QC {:
+    System.out.println("Arrived at QO EXPL QC with type: "+l.get(0).type);
+    System.out.println("NEw type: "+"["+l.size()+" x "+l.get(0).type+"]");
+    RESULT=new ArrayDec("["+l.size()+" x "+l.get(0).type+"]",l,true);
+:};
+
+EXPL::= EXPL:l C EXP:e {:
+    l.add(e);
+    RESULT=l;
+:} | EXP:e {:
+    ArrayList<Attribute> l=new ArrayList<Attribute>();
+    l.add(e);
+    RESULT=l;
+:} | ;
 
 TList::= QO TList:t QC {:
     t.addArrLevel();
@@ -491,10 +676,12 @@ ASS::= ID:a EQ EXP:e {:
     if(!e.type.equals(type)){
         System.out.println("\t\t\tERRORRRRR IN ASSINGMENT");
     }
-    System.out.println("\n\tInside ASSIGNMENT;  with exp: "+e);
+    System.out.println("\n\tInside ASSIGNMENT;  with exp: "+e.type+" and id of type: "+type);
     if(inFunction)  functions.get(functionName).functionOutput.append("\nstore "+type+" "+e.getReg()+","+type+"* "+getRegVar(a));
     else    outputBuffer.append("\nstore "+type+" "+e.getReg()+","+type+"* "+getRegVar(a));
-:};
+:} | IDARR:a EQ EXP:e {:
+    functions.get(functionName).functionOutput.append("\nstore "+e.type+" "+e.getReg()+","+a.type+"* "+a.getReg());
+:} ;
 
 EXP::= EXP:e OP:op ATTR:a {:
     int id;
@@ -503,6 +690,7 @@ EXP::= EXP:e OP:op ATTR:a {:
         errorBuffer.append("Error in exp");
     }
     else{*/
+    System.out.println("In exp with exp a of type: "+e.type+" and reg: "+e.getReg()+" , and attr b of type: "+a.type+" and reg: "+a.getReg());
         if(inFunction){
             Function f=functions.get(functionName);
             f.functionOutput.append("\n%"+(++f.regId)+"= "+getIrOp(op,e.type)+" "+e.type+" ");
@@ -523,10 +711,10 @@ EXP::= EXP:e OP:op ATTR:a {:
             id=regid;
         }
     //}
-    RESULT=new Attribute(e.type,regid);
+    RESULT=new Attribute(e.type,id);
 :}| ATTR:a {:
     RESULT=a;
-:}| MINUS EXP:e %prec uminus;
+:}| MINUS EXP:e %prec uminus ;
 
 ATTR::= PROC:p {:
     RESULT=p;
@@ -545,16 +733,52 @@ ATTR::= PROC:p {:
     RESULT=new Attribute(type,id);
 :} | VAL:v {:
     RESULT=new Attribute(v.value,v.irDec());
-:} | IDARR:i {::} ;
+:} | IDARR:i {:
+    int id;
+    if(inFunction){
+        Function f=functions.get(functionName);
+        f.functionOutput.append("\n%"+(++f.regId)+"= load "+i.type+","+i.type+"* "+i.getReg());
+        id=f.regId;
+    }
+    else{
+        outputBuffer.append("\n%"+(++regid)+"= load "+i.type+","+i.type+"* "+i.getReg());
+        id=regid;
+    }
+    RESULT=new Attribute(i.type,id);
+:} ;
 
 IDARR::= IDARR:i QO ATTR:a QC {:
     Function f=functions.get(functionName);
+    String ir=i.type;
+    System.out.println("ir of idarr is "+ir);
     f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds "+i.type+","+i.type+"* "+i.getReg()+", i32 0, i32 "+a.getReg());
-    RESULT=new Attribute(i.getReg().substring(1,i.getReg().length()-1).substring(i.getReg().substring(1,i.getReg().length()-1).indexOf("[")),f.regId);
+    String subir=ir.substring(1,ir.length()-1);
+    System.out.println("sub from 1 to lenght-1 is : "+subir);
+    System.out.println("subir index of [: "+subir.indexOf("["));
+    String newType;
+    if(subir.indexOf("[")<0){
+        System.out.println("subir index of x: "+subir.indexOf("x"));
+        newType=subir.substring(subir.indexOf("x")+2,subir.length());
+    }
+    else newType=subir.substring(subir.indexOf("["),subir.length());
+    System.out.println("new type is : "+newType );
+    RESULT=new Attribute(newType,f.regId);
 :} | ID:i QO ATTR:a QC {:
     Function f=functions.get(functionName);
-    f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds "+getReg(i)+","+getReg(i)+"* "+getRegVar(i)+", i32 0, i32 "+a.getReg());
-    RESULT=new Attribute(getReg(i).substring(1,getReg(i).length()-1).substring(getReg(i).substring(1,getReg(i).length()-1).indexOf("[")),f.regId);
+    String ir=getVarIrDec(i);
+    String reg=getRegVar(i);
+    System.out.println("ir of "+i+" is "+ir);
+    f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds "+ir+","+ir+"* "+reg+", i32 0, i32 "+a.getReg());
+    String subir=ir.substring(1,ir.length()-1);
+    System.out.println("sub from 1 to lenght-1 is : "+subir);
+    System.out.println("subir index of [: "+subir.indexOf("["));
+    String newType;
+    if(subir.indexOf("[")<0){
+        System.out.println("subir index of x: "+subir.indexOf("x"));
+        newType=subir.substring(subir.indexOf("x")+2,subir.length());
+    }
+    else newType=subir.substring(subir.indexOf("["),subir.length());
+    RESULT=new Attribute(newType,f.regId);
 :} ;
 
 OP::= PLUS {:RESULT=operations.ADD;:} | MINUS {:RESULT=operations.SUB;:} | DIV {:RESULT=operations.DIV;:} | MUL {:RESULT=operations.MUL;:};
@@ -563,7 +787,7 @@ OP::= PLUS {:RESULT=operations.ADD;:} | MINUS {:RESULT=operations.SUB;:} | DIV {
 
 STMS::= STMS STM | STM;
 
-STM::=ASS | PROC | DEC | FUNCTION | IFCOND | WHILECOND | FORCOND | CLASSDEF;
+STM::=ASS | PROC | DEC | FUNCTION | IFCOMPLETEBLOCK | WHILECOND | FORCOND | CLASSDEF;
 
 PROC::= ID:name BO CPARlist:l BC {:
     Function f=functions.get(name);
@@ -591,11 +815,11 @@ PROC::= ID:name BO CPARlist:l BC {:
     if(inFunction){
         Function f=functions.get(functionName);
         l.forEach(p->f.functionOutput.append("\n%"+(++f.regId)+" = call i32 (i8*, ...) @printf(i8* %"+p+")"));
-        f.functionOutput.append("\n%"+(++f.regId)+" = call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8], [2 x i8]* @.str.newline, i32 0, i32 0)");
+        f.functionOutput.append("\n%"+(++f.regId)+" = call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8], [2 x i8]* @.str.newline, i32 0, i32 0))");
     }
     else{
         l.forEach(p->outputBuffer.append("\n%"+(++regid)+" = call i32 (i8*, ...) @printf(i8* %"+p+")"));
-        outputBuffer.append("\n%"+(++regid)+" = call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8], [2 x i8]* @.str.newline, i32 0, i32 0)");
+        outputBuffer.append("\n%"+(++regid)+" = call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8], [2 x i8]* @.str.newline, i32 0, i32 0))");
     }
 :};
 
@@ -622,21 +846,99 @@ CPAR::= ID:name COL EXP:e {:RESULT=e;:} | EXP:e {:RESULT=e;:} ;
 
 //control loop blocks
 
-IFCOND::= IF COND GO STMS GC ELIFBLOCK;
+IFCOMPLETEBLOCK::= IFCC:ifc {:
+    Function f=functions.get(functionName);
+    f.functionOutput.append("\nif.elif."+ifc.type+"."+ifc.regId+":");
+    f.functionOutput.append("\nbr label %if.exit."+ifc.type+".0");
+    f.functionOutput.append("\nif.exit."+ifc.type+".0:");
+:} | IFCC:ifc ELSE {:
+    Function f=functions.get(functionName);
+    f.functionOutput.append("\nif.elif."+ifc.type+"."+ifc.regId+":");
+:} GO STMS GC {:
+    Function f=functions.get(functionName);
+    f.functionOutput.append("\nbr label %if.exit."+ifc.type+".0");
+    f.functionOutput.append("\nif.exit."+ifc.type+".0:");
+:};
 
-ELIFBLOCK::= ELIFBLOCK ELIF COND GO STMS GC| ELSE GO STMS GC | ;
+IFCC::= IFCC:ifc ELIF {:
+    functions.get(functionName).functionOutput.append("\nif.elif."+ifc.type+"."+ifc.regId+":");
+:} COND:cond {:
+    Function f=functions.get(functionName);
+    f.functionOutput.append("\nbr i1 "+cond.getReg()+", label %if.body."+ifc.type+"."+ifc.regId+", label %if.elif."+ifc.type+"."+(ifc.regId+1));
+    f.functionOutput.append("\nif.body."+ifc.type+"."+ifc.regId+":");
+:} GO STMS GC {:
+    Function f=functions.get(functionName);
+    f.functionOutput.append("\nbr label %if.exit."+ifc.type+".0");
+    ifc.setReg(ifc.regId+1);
+    RESULT=ifc;
+:} | IFCOND:ifc {:RESULT=ifc;:};
 
-WHILECOND::= WHILE COND GO STMS GC;
+IFCOND::= IFCONDDEC:ifNum GO STMS GC {:
+    Function f=functions.get(functionName);
+    f.functionOutput.append("\nbr label %if.exit."+ifNum+".0");
+    RESULT=new Attribute(""+ifNum,0);
+:} | IFCONDDEC STM ;
+
+IFCONDDEC::= IF COND:cond {:
+    Function f=functions.get(functionName);
+    int currIf=currentIf++;
+    inConditional=true;
+    f.functionOutput.append("\nbr i1 "+cond.getReg()+", label %if.body."+currIf+", label %if.elif."+currIf+".0");
+    f.functionOutput.append("\nif.body."+currIf+":");
+    RESULT=currIf;
+:};
+
+
+WHILECOND::= WHILE {:
+    Function f=functions.get(functionName);
+    int currWh=currentWhile++;
+    f.functionOutput.append("\nbr label %for.cond."+currWh);
+    f.functionOutput.append("\nwhile.cond."+currWh+":");
+:} CONDGO STMS GC;
 
 FORCOND::= FOR ID IN RANGE GO STMS GC;
 
 RANGE::= ID | INTVAL DOT DOT DOT INTVAL | INTVAL DOT DOT LESS INTVAL | ID DOT DOT DOT ID | ID DOT DOT LESS ID | ID DOT DOT DOT INTVAL | ID DOT DOT LESS INTVAL | INTVAL DOT DOT DOT ID | INTVAL DOT DOT LESS ID | STRINGVAL;
 
-COND::= COND AND CONDATTR | COND OR CONDATTR | CONDATTR;
+COND::= COND:a AND COND:b {:
+    Function f=functions.get(functionName);
+    f.functionOutput.append("\n%"+(++f.regId)+" = and i1 "+a.getReg()+","+b.getReg());
+    int andreg=f.regId;
+    f.functionOutput.append("\n%"+(++f.regId)+"=  icmp eq i1 %"+andreg+",1");
+    a.setReg(f.regId);
+    RESULT=a;
+:}| COND:a OR COND:b {:
+    Function f=functions.get(functionName);
+    f.functionOutput.append("\n%"+(++f.regId)+" = or i1 "+a.getReg()+","+b.getReg());
+    int andreg=f.regId;
+    f.functionOutput.append("\n%"+(++f.regId)+"= icmp eq i1 %"+andreg+",1");
+    a.setReg(f.regId);
+    RESULT=a;
+:}| NOT COND:a {:
+    Function f=functions.get(functionName);
+    f.functionOutput.append("\n%"+(++f.regId)+"= icmp eq i1 "+a.getReg()+",0");
+    a.setReg(f.regId);
+    RESULT=a;
+:} | CONDATTR:a {:
+    if(!a.type.equals("i1")){
+        Function f=functions.get(functionName);
+        if(a.type.equals("double"))  f.functionOutput.append("\n%"+(++f.regId)+"= fcmp ne "+a.type+" "+a.getReg()+",0");
+        else    f.functionOutput.append("\n%"+(++f.regId)+"= icmp ne "+a.type+" "+a.getReg()+",0");
+        RESULT=new Attribute("i1",f.regId);
+    }
+    else    RESULT=a;
+:};
 
-CONDATTR::= ATTR CONDOP ATTR | NOT ATTR;
+CONDATTR::= ATTR:a CONDOP:cond ATTR:b {:
+    System.out.println("got into ATTR CONDOP ATTR");
+    Function f=functions.get(functionName);
+    if(!b.type.equals("double"))  f.functionOutput.append("\n%"+(++f.regId)+"= icmp "+getCondIrOp(cond,true)+" "+a.type+" "+a.getReg()+","+b.getReg());
+    else f.functionOutput.append("\n%"+(++f.regId)+"= fcmp "+getCondIrOp(cond,false)+" "+a.type+" "+a.getReg()+","+b.getReg());
+    System.out.println("Got over condattr reduce with reg:"+f.regId);
+    RESULT=new Attribute("i1",f.regId);
+:}| ATTR:a {:RESULT=a;:};
 
-CONDOP::= LESS | GREATER | LESSEQ | GREATEREQ | EQUAL;
+CONDOP::= LESS {:RESULT=operations.LESS;:} | GREATER {:RESULT=operations.GRT;:} | LESSEQ {:RESULT=operations.LSE;:} | GREATEREQ {:RESULT=operations.GRE;:} | EQUAL {:RESULT=operations.EQ;:};
 
 //function declaration
 
@@ -664,7 +966,7 @@ FUNCDef::=FUNC ID:name BO PARlist:l BC RETVAL:r{:
         else{
             f.functionOutput.append("\n%"+(++f.regId)+" = alloca "+e.type.irDec()+"*");
             int reg=f.regId;
-            f.functionOutput.append("\nstore "+e.type.irDec()+" %"+e.name+", "+e.type.irDec()+"* %"+f.regId);
+            f.functionOutput.append("\nstore "+e.type.irDec()+"* %"+e.name+", "+e.type.irDec()+"* %"+f.regId);
             f.functionOutput.append("\n%"+(++f.regId)+" = load "+e.type.irDec()+"*,"+e.type.irDec()+"** %"+f.regId);
             Value v=new Value(e.type);
             v.setReg(f.regId);
