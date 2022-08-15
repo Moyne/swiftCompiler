@@ -8,8 +8,8 @@ import java_cup.runtime.*;
 %line
 %column
 id=[\_a-zA-Z][\_a-zA-Z0-9]*
-int= [+-]? [0-9] | [1-9][0-9]*
-double = [+-]? ((([0-9]+\.[0-9]*) | ([0-9]*\.[0-9]+)) (e|E('+'|'-')?[0-9]+)?)
+int=  [0-9] | [1-9][0-9]*
+double =  ((([0-9]+\.[0-9]*) | ([0-9]*\.[0-9]+)) (e|E('+'|'-')?[0-9]+)?)
 string= \"[a-zA-Z0-9\_]*\"
 stringInterpolationStart=\"[^\"\(\)]*\\\(
 stringInterpolationIntermediate=\)[^\"\(\)]*\\\(
@@ -52,6 +52,7 @@ ws = [ \t]
 "if" { return symbol(sym.IF); }
 "else if" { return symbol(sym.ELIF); }
 "else" { return symbol(sym.ELSE); }
+"return" { return symbol(sym.RETURN); }
 "," { return symbol(sym.C); }
 "=" { return symbol(sym.EQ); }
 ":" { return symbol(sym.COL); }

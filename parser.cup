@@ -17,6 +17,14 @@ parser code {:
         GRE,
         EQ
     };
+    public class Scope{
+        public HashMap<String,Value> variables;
+        public HashMap<String,Value> constants;
+        public Scope(){
+            this.variables=new HashMap<String,Value>();
+            this.constants=new HashMap<String,Value>();
+        }
+    }
     public class FValue{
         public boolean inout;
         public Value value;
@@ -48,11 +56,11 @@ parser code {:
     public class ClassType{
         public int sizeClass;
         public ArrayList<Function> functions;
-        public HashMap<String,Value> properties;
-        public ClassType(int size,ArrayList<Function> funcs,HashMap<String,Value> props){
+        public Scope scope;
+        public ClassType(int size,ArrayList<Function> funcs,Scope props){
             this.sizeClass=size;
             this.functions=funcs;
-            this.properties=props;
+            this.scope=scope;
         }
     }
     public class Function{
@@ -60,13 +68,14 @@ parser code {:
         public String retType;
         public ArrayList<Parameter> pars;
         public StringBuffer functionOutput=new StringBuffer();
-        public HashMap<String,Value> varMap=new HashMap<String,Value>();
-        public HashMap<String,Value> letMap=new HashMap<String,Value>();
+        public Scope scope;
         public int regId=0;
+        public boolean returned;
         public Function(String name,String retType,ArrayList<Parameter> pars){
             this.name=name;
             this.retType=retType;
             this.pars=pars;
+            this.returned=false;
         }
         public String irDec(){
             return retType+" ("+pars.stream().map(e->e.type.irDec()).collect(Collectors.joining(","))+") @"+name;
@@ -74,11 +83,18 @@ parser code {:
     }
     /*public class Variable{
         public String name;
-        public boolean costant;
-        public Value type;
-        public Variable(String name,boolean costant,Value type){
+        public boolean initialized;
+        public String type;
+        public boolean pointer;
+        public boolean funcParameter;
+        public ArrayList<String> funcDimArr;
+        public int addrReg;
+        public String irDec(){
+            return type+(pointer?"*":"");
+        }
+        public Variable(String name,boolean costant,String type){
             this.name=name;
-            this.costant=costant;
+            this.initialized=initialized;
             this.type=type;
         }
     }*/
@@ -267,8 +283,8 @@ parser code {:
             return this.irDec() +" with reg:"+this.getReg();
         }
     }
-    public HashMap<String,Value> varMap=new HashMap<String,Value>();
-    public HashMap<String,Value> letMap=new HashMap<String,Value>();
+    public Scope globalScope=new Scope();
+    public ArrayList<Scope> scopes=new ArrayList<Scope>();
     public StringBuffer outputBuffer=new StringBuffer();
     public StringBuffer errorBuffer=new StringBuffer();
     public StringBuffer globalBuffer=new StringBuffer();
@@ -280,6 +296,7 @@ parser code {:
     public boolean inFunction=false;
     public String functionName;
     public int currentIf=0;
+    public int currentFor=0;
     public boolean inConditional=false;
     public String getIrOp(operations op,String type){
         boolean integer=type.equals("i32");
@@ -304,22 +321,20 @@ parser code {:
     }
     public String getVarIrDec(String var){
         System.out.println("Inside getvarirdec with: "+var+" and infunction? "+inFunction);
-        if(inFunction){
-            if(functions.get(functionName).varMap.containsKey(var)) return functions.get(functionName).varMap.get(var).irDec();
-            else if(functions.get(functionName).letMap.containsKey(var)) return functions.get(functionName).letMap.get(var).irDec();
+        for(int i=scopes.size()-1;i>=0;i--){
+            Scope scope=scopes.get(i);
+            if(scope.variables.containsKey(var)) return scope.variables.get(var).irDec();
+            else if(scope.constants.containsKey(var)) return scope.constants.get(var).irDec();
         }
-        if(varMap.containsKey(var)) return varMap.get(var).irDec();
-        else if(letMap.containsKey(var))    return letMap.get(var).irDec();
-        else return "ERROR";
+        return "ERROR";
     }
     public String getRegVar(String var){
-        if(inFunction){
-            if(functions.get(functionName).varMap.containsKey(var)) return functions.get(functionName).varMap.get(var).getReg();
-            else if(functions.get(functionName).letMap.containsKey(var)) return functions.get(functionName).letMap.get(var).getReg();
+        for(int i=scopes.size()-1;i>=0;i--){
+            Scope scope=scopes.get(i);
+            if(scope.variables.containsKey(var)) return scope.variables.get(var).getReg();
+            else if(scope.constants.containsKey(var)) return scope.constants.get(var).getReg();
         }
-        if(varMap.containsKey(var)) return varMap.get(var).getReg();
-        else if(letMap.containsKey(var))    return letMap.get(var).getReg();
-        else return "ERROR";
+        return "ERROR";
     }
     public void storeRow(int i,ArrayDec a){
         Function f=functions.get(functionName);
@@ -384,16 +399,17 @@ terminal PLUS,MINUS,DIV,MUL;
 terminal LESS,GREATER,LESSEQ,GREATEREQ,AND,OR,EQUAL,NOT;
 terminal ELIF,ELSE,IF,FOR,IN,WHILE,DOT;
 terminal QO,QC,INOUT,CLASS;
-terminal PRINT;
+terminal PRINT,RETURN;
 terminal uminus;
 
 non terminal PROG,DEC,IDINITlist,INIT;
 non terminal ASS,STMS,STM,FUNCTION,FSTMTS;
-non terminal WHILECOND,FORCOND,RANGE;
+non terminal WHILECOND,FORCOND;
 non terminal ATTRL;
 non terminal CLASSDEF,CSTMTS;
 non terminal ArrayList<String> IDlist;
-non terminal Value TYPE,VAL;
+non terminal Value TYPE;
+non terminal Attribute VAL;
 non terminal Value TList,T;
 non terminal operations OP;
 non terminal Attribute ATTR,EXP,PROC;
@@ -416,50 +432,50 @@ non terminal Attribute IFCC,IFCOND;
 non terminal IFCOMPLETEBLOCK;
 non terminal Attribute CONDATTR,COND;
 non terminal operations CONDOP;
+non terminal Integer WHILEDEF;
+non terminal RET;
 
-precedence left PLUS,MINUS;
-precedence left MUL,DIV;
+precedence left PLUS,MINUS,OR;
+precedence left MUL,DIV,AND;
 precedence left uminus;
 
 start with PROG;
 
-PROG::= STMS {:System.out.println("At the end the global buffer has:\n"+globalBuffer+"\nand theoutput buffer has:\n"+outputBuffer+"\n");:};
+PROG::= {:scopes.add(globalScope);:} STMS {:System.out.println("At the end the global buffer has:\n"+globalBuffer+"\nand theoutput buffer has:\n"+outputBuffer+"\n");:};
 
 //declarations of variables
 
 DEC::= LET IDlist:l TYPE:t {: 
 l.forEach(a->{
     if(!inFunction){
-        outputBuffer.append("\n@"+a+"= alloca "+t.irDec()+",align 4");
+        globalBuffer.append("\n@"+a+"= alloca "+t.irDec()+",align 4");
         Value v=new Value(t);
         v.setReg(a);
-        letMap.put(a,v);
+        scopes.get(scopes.size()-1).constants.put(a,v);
     }
     else{
         Function f=functions.get(functionName);
         f.functionOutput.append("\n%"+(++f.regId)+"= alloca "+t.irDec()+",align 4");
         Value v=new Value(t);
         v.setReg(f.regId);
-        f.letMap.put(a,v);
+        scopes.get(scopes.size()-1).constants.put(a,v);
     }
-});
-System.out.println("\tNow letmap contains: "+letMap); :} | VAR IDlist:l TYPE:t {: 
+});:} | VAR IDlist:l TYPE:t {: 
 l.forEach(a->{
     if(!inFunction){
-        outputBuffer.append("\n@"+a+"= alloca "+t.irDec()+",align 4");
+        globalBuffer.append("\n@"+a+"= alloca "+t.irDec()+",align 4");
         Value v=new Value(t);
         v.setReg(a);
-        varMap.put(a,v);
+        scopes.get(scopes.size()-1).variables.put(a,v);
     }
     else{
         Function f=functions.get(functionName);
         f.functionOutput.append("\n%"+(++f.regId)+"= alloca "+t.irDec()+",align 4");
         Value v=new Value(t);
         v.setReg(f.regId);
-        f.varMap.put(a,v);
+        scopes.get(scopes.size()-1).variables.put(a,v);
     }
-});
-System.out.println("\tNow varmap contains: "+varMap); :} | LET IDINITlist | VAR IDINITlist;
+});:} | LET IDINITlist | VAR IDINITlist;
 
 IDlist::= IDlist:l C ID:x {: ArrayList<String> arr= new ArrayList<String>(l);
                             arr.add(x);
@@ -476,7 +492,7 @@ INIT::= ID EQ VAL | ID:i EQ ARRVALE:l {:
     storeRow(f.regId,l);
     Value v=new Value(l.type);
     v.setReg(f.regId);
-    f.varMap.put(i,v);
+    scopes.get(scopes.size()-1).variables.put(i,v);
 :} ;
 
 TYPE::= COL TList:t {:RESULT=t;:}| COL TList:t EQ VAL:v {:
@@ -485,7 +501,7 @@ TYPE::= COL TList:t {:RESULT=t;:}| COL TList:t EQ VAL:v {:
     RESULT=t;
 :} | COL TList:t EQ ARRVAL;
 
-VAL::= DOUBLEVAL:v {:RESULT=new Value(false,v);:}| INTVAL:v {:RESULT=new Value(32,false,v);:}| STR:v {:RESULT=new Value(8,true,v);:};
+VAL::= DOUBLEVAL:v {:RESULT=new Attribute(v,"double");:}| INTVAL:v {:RESULT=new Attribute(v,"i32");:}| STR:v {:RESULT=new Attribute(v,"[200 x i8]");:};
 
 STR::= STRINGVAL:s {:
     globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(s.length()+1)+" x i8] c\""+s+"\\00\"");
@@ -683,7 +699,7 @@ ASS::= ID:a EQ EXP:e {:
     functions.get(functionName).functionOutput.append("\nstore "+e.type+" "+e.getReg()+","+a.type+"* "+a.getReg());
 :} ;
 
-EXP::= EXP:e OP:op ATTR:a {:
+EXP::= EXP:e PLUS EXP:a {:
     int id;
     /*if(!e.type.equals(a.type)){
         System.out.println("Error in EXP because of type, e has type: "+e.type+" , while a has type: "+a.type);
@@ -693,7 +709,7 @@ EXP::= EXP:e OP:op ATTR:a {:
     System.out.println("In exp with exp a of type: "+e.type+" and reg: "+e.getReg()+" , and attr b of type: "+a.type+" and reg: "+a.getReg());
         if(inFunction){
             Function f=functions.get(functionName);
-            f.functionOutput.append("\n%"+(++f.regId)+"= "+getIrOp(op,e.type)+" "+e.type+" ");
+            f.functionOutput.append("\n%"+(++f.regId)+"= "+getIrOp(operations.ADD,e.type)+" "+e.type+" ");
             if(e.immediate) f.functionOutput.append(e.immediateValue);
             else f.functionOutput.append(e.getReg());
             f.functionOutput.append(",");
@@ -702,7 +718,7 @@ EXP::= EXP:e OP:op ATTR:a {:
             id=f.regId;
         }
         else{
-            outputBuffer.append("\n%"+(++regid)+"= "+getIrOp(op,e.type)+" "+e.type+" ");
+            outputBuffer.append("\n%"+(++regid)+"= "+getIrOp(operations.ADD,e.type)+" "+e.type+" ");
             if(e.immediate) outputBuffer.append(e.immediateValue);
             else outputBuffer.append(e.getReg());
             outputBuffer.append(",");
@@ -714,7 +730,99 @@ EXP::= EXP:e OP:op ATTR:a {:
     RESULT=new Attribute(e.type,id);
 :}| ATTR:a {:
     RESULT=a;
-:}| MINUS EXP:e %prec uminus ;
+:}| EXP:e MINUS EXP:a {:
+    int id;
+    /*if(!e.type.equals(a.type)){
+        System.out.println("Error in EXP because of type, e has type: "+e.type+" , while a has type: "+a.type);
+        errorBuffer.append("Error in exp");
+    }
+    else{*/
+    System.out.println("In exp with exp a of type: "+e.type+" and reg: "+e.getReg()+" , and attr b of type: "+a.type+" and reg: "+a.getReg());
+        if(inFunction){
+            Function f=functions.get(functionName);
+            f.functionOutput.append("\n%"+(++f.regId)+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" ");
+            if(e.immediate) f.functionOutput.append(e.immediateValue);
+            else f.functionOutput.append(e.getReg());
+            f.functionOutput.append(",");
+            if(a.immediate) f.functionOutput.append(a.immediateValue);
+            else f.functionOutput.append(a.getReg());
+            id=f.regId;
+        }
+        else{
+            outputBuffer.append("\n%"+(++regid)+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" ");
+            if(e.immediate) outputBuffer.append(e.immediateValue);
+            else outputBuffer.append(e.getReg());
+            outputBuffer.append(",");
+            if(a.immediate) outputBuffer.append(a.immediateValue);
+            else outputBuffer.append(a.getReg());
+            id=regid;
+        }
+    //}
+    RESULT=new Attribute(e.type,id);
+:} | EXP:e MUL EXP:a {:
+    int id;
+    /*if(!e.type.equals(a.type)){
+        System.out.println("Error in EXP because of type, e has type: "+e.type+" , while a has type: "+a.type);
+        errorBuffer.append("Error in exp");
+    }
+    else{*/
+    System.out.println("In exp with exp a of type: "+e.type+" and reg: "+e.getReg()+" , and attr b of type: "+a.type+" and reg: "+a.getReg());
+        if(inFunction){
+            Function f=functions.get(functionName);
+            f.functionOutput.append("\n%"+(++f.regId)+"= "+getIrOp(operations.MUL,e.type)+" "+e.type+" ");
+            if(e.immediate) f.functionOutput.append(e.immediateValue);
+            else f.functionOutput.append(e.getReg());
+            f.functionOutput.append(",");
+            if(a.immediate) f.functionOutput.append(a.immediateValue);
+            else f.functionOutput.append(a.getReg());
+            id=f.regId;
+        }
+        else{
+            outputBuffer.append("\n%"+(++regid)+"= "+getIrOp(operations.MUL,e.type)+" "+e.type+" ");
+            if(e.immediate) outputBuffer.append(e.immediateValue);
+            else outputBuffer.append(e.getReg());
+            outputBuffer.append(",");
+            if(a.immediate) outputBuffer.append(a.immediateValue);
+            else outputBuffer.append(a.getReg());
+            id=regid;
+        }
+    //}
+    RESULT=new Attribute(e.type,id);
+:} | EXP:e DIV EXP:a {:
+    int id;
+    /*if(!e.type.equals(a.type)){
+        System.out.println("Error in EXP because of type, e has type: "+e.type+" , while a has type: "+a.type);
+        errorBuffer.append("Error in exp");
+    }
+    else{*/
+    System.out.println("In exp with exp a of type: "+e.type+" and reg: "+e.getReg()+" , and attr b of type: "+a.type+" and reg: "+a.getReg());
+        if(inFunction){
+            Function f=functions.get(functionName);
+            f.functionOutput.append("\n%"+(++f.regId)+"= "+getIrOp(operations.DIV,e.type)+" "+e.type+" ");
+            if(e.immediate) f.functionOutput.append(e.immediateValue);
+            else f.functionOutput.append(e.getReg());
+            f.functionOutput.append(",");
+            if(a.immediate) f.functionOutput.append(a.immediateValue);
+            else f.functionOutput.append(a.getReg());
+            id=f.regId;
+        }
+        else{
+            outputBuffer.append("\n%"+(++regid)+"= "+getIrOp(operations.DIV,e.type)+" "+e.type+" ");
+            if(e.immediate) outputBuffer.append(e.immediateValue);
+            else outputBuffer.append(e.getReg());
+            outputBuffer.append(",");
+            if(a.immediate) outputBuffer.append(a.immediateValue);
+            else outputBuffer.append(a.getReg());
+            id=regid;
+        }
+    //}
+    RESULT=new Attribute(e.type,id);
+:} | BO EXP:e BC {:RESULT=e;:}
+| MINUS EXP:e {:
+    Function f=functions.get(functionName);
+    f.functionOutput.append("\n%"+(++f.regId)+" = sub "+e.type+" 0,"+e.getReg());
+    RESULT=new Attribute(e.type,f.regId);
+:} %prec uminus;
 
 ATTR::= PROC:p {:
     RESULT=p;
@@ -732,7 +840,7 @@ ATTR::= PROC:p {:
     }
     RESULT=new Attribute(type,id);
 :} | VAL:v {:
-    RESULT=new Attribute(v.value,v.irDec());
+    RESULT=v;
 :} | IDARR:i {:
     int id;
     if(inFunction){
@@ -787,7 +895,7 @@ OP::= PLUS {:RESULT=operations.ADD;:} | MINUS {:RESULT=operations.SUB;:} | DIV {
 
 STMS::= STMS STM | STM;
 
-STM::=ASS | PROC | DEC | FUNCTION | IFCOMPLETEBLOCK | WHILECOND | FORCOND | CLASSDEF;
+STM::=ASS | PROC | DEC | FUNCTION | IFCOMPLETEBLOCK | WHILECOND | FORCOND | CLASSDEF | RET;
 
 PROC::= ID:name BO CPARlist:l BC {:
     Function f=functions.get(name);
@@ -854,10 +962,12 @@ IFCOMPLETEBLOCK::= IFCC:ifc {:
 :} | IFCC:ifc ELSE {:
     Function f=functions.get(functionName);
     f.functionOutput.append("\nif.elif."+ifc.type+"."+ifc.regId+":");
+    scopes.add(new Scope());
 :} GO STMS GC {:
     Function f=functions.get(functionName);
     f.functionOutput.append("\nbr label %if.exit."+ifc.type+".0");
     f.functionOutput.append("\nif.exit."+ifc.type+".0:");
+    scopes.remove(scopes.size()-1);
 :};
 
 IFCC::= IFCC:ifc ELIF {:
@@ -866,16 +976,19 @@ IFCC::= IFCC:ifc ELIF {:
     Function f=functions.get(functionName);
     f.functionOutput.append("\nbr i1 "+cond.getReg()+", label %if.body."+ifc.type+"."+ifc.regId+", label %if.elif."+ifc.type+"."+(ifc.regId+1));
     f.functionOutput.append("\nif.body."+ifc.type+"."+ifc.regId+":");
+    scopes.add(new Scope());
 :} GO STMS GC {:
     Function f=functions.get(functionName);
     f.functionOutput.append("\nbr label %if.exit."+ifc.type+".0");
     ifc.setReg(ifc.regId+1);
+    scopes.remove(scopes.size()-1);
     RESULT=ifc;
-:} | IFCOND:ifc {:RESULT=ifc;:};
+:} | IFCOND:ifc {:scopes.remove(scopes.size()-1);RESULT=ifc;:};
 
 IFCOND::= IFCONDDEC:ifNum GO STMS GC {:
     Function f=functions.get(functionName);
     f.functionOutput.append("\nbr label %if.exit."+ifNum+".0");
+    scopes.remove(scopes.size()-1);
     RESULT=new Attribute(""+ifNum,0);
 :} | IFCONDDEC STM ;
 
@@ -885,20 +998,65 @@ IFCONDDEC::= IF COND:cond {:
     inConditional=true;
     f.functionOutput.append("\nbr i1 "+cond.getReg()+", label %if.body."+currIf+", label %if.elif."+currIf+".0");
     f.functionOutput.append("\nif.body."+currIf+":");
+    scopes.add(new Scope());
     RESULT=currIf;
 :};
 
 
-WHILECOND::= WHILE {:
+WHILECOND::= WHILEDEF:wh COND:cond {:
     Function f=functions.get(functionName);
-    int currWh=currentWhile++;
+    f.functionOutput.append("\nbr i1 "+cond.getReg()+", label %for.body."+wh+", label %for.exit."+wh);
+    f.functionOutput.append("\nfor.body."+wh+":");
+    scopes.add(new Scope());
+:} GO STMS GC {:
+    Function f=functions.get(functionName);
+    f.functionOutput.append("\nbr label %for.cond."+wh);
+    f.functionOutput.append("\nfor.exit."+wh+":");
+    scopes.remove(scopes.size()-1);
+:};
+
+WHILEDEF::= WHILE {:
+    Function f=functions.get(functionName);
+    int currWh=currentFor++;
     f.functionOutput.append("\nbr label %for.cond."+currWh);
-    f.functionOutput.append("\nwhile.cond."+currWh+":");
-:} CONDGO STMS GC;
+    f.functionOutput.append("\nfor.cond."+currWh+":");
+    RESULT=currWh;
+:};
 
-FORCOND::= FOR ID IN RANGE GO STMS GC;
+FORCOND::= FOR ID:index IN INTVAL:start DOT DOT DOT INTVAL:finish {:
+    scopes.add(new Scope());
+    Function f=functions.get(functionName);
+    int currFor=currentFor++;
+    f.functionOutput.append("\nbr label %for.init."+currFor);
+    f.functionOutput.append("\nfor.init."+currFor+":");
+    f.functionOutput.append("\n%"+(++f.regId)+" = alloca i32, align 4");
+    int indexId=f.regId;
+    Value v=new Value(32,false);
+    v.setReg(indexId);
+    scopes.get(scopes.size()-1).constants.put(index,v);
+    f.functionOutput.append("\nstore i32 "+start+",i32* %"+indexId);
+    f.functionOutput.append("\nbr label %for.cond."+currFor);
+    f.functionOutput.append("\nfor.cond."+currFor+":");
+    f.functionOutput.append("\n%"+(++f.regId)+" = load i32,i32* %"+indexId);
+    int idload=f.regId;
+    f.functionOutput.append("\n%"+(++f.regId)+" = icmp sle i32 %"+idload+","+finish);
+    f.functionOutput.append("\nbr i1 %"+f.regId+", label %for.body."+currFor+", label %for.exit."+currFor);
+    f.functionOutput.append("\nfor.body."+currFor+":");
+    RESULT=currFor;
+:} GO STMS GC {:
+    Function f=functions.get(functionName);
+    f.functionOutput.append("\nbr label %for.inc."+RESULT);
+    f.functionOutput.append("\nfor.inc."+RESULT+":");
+    f.functionOutput.append("\n%"+(++f.regId)+" = load i32,i32* "+getRegVar(index));
+    int k=f.regId;
+    f.functionOutput.append("\n%"+(++f.regId)+" = add nsw i32 %"+k+",1");
+    f.functionOutput.append("\nstore i32 %"+f.regId+",i32* "+getRegVar(index));
+    f.functionOutput.append("\nbr label %for.cond."+RESULT+":");
+    f.functionOutput.append("\nfor.exit."+RESULT+":");
+    scopes.remove(scopes.size()-1);
+:} | FOR ID IN INTVAL DOT DOT LESS INTVAL GO STMS GC | FOR ID IN ID DOT DOT DOT ID GO STMS GC | FOR ID IN ID DOT DOT LESS ID GO STMS GC | 
+FOR ID IN ID DOT DOT DOT INTVAL GO STMS GC | FOR ID IN ID DOT DOT LESS INTVAL GO STMS GC | FOR ID IN INTVAL DOT DOT DOT ID GO STMS GC | FOR ID IN INTVAL DOT DOT LESS ID GO STMS GC | FOR ID IN STRINGVAL GO STMS GC;
 
-RANGE::= ID | INTVAL DOT DOT DOT INTVAL | INTVAL DOT DOT LESS INTVAL | ID DOT DOT DOT ID | ID DOT DOT LESS ID | ID DOT DOT DOT INTVAL | ID DOT DOT LESS INTVAL | INTVAL DOT DOT DOT ID | INTVAL DOT DOT LESS ID | STRINGVAL;
 
 COND::= COND:a AND COND:b {:
     Function f=functions.get(functionName);
@@ -927,25 +1085,31 @@ COND::= COND:a AND COND:b {:
         RESULT=new Attribute("i1",f.regId);
     }
     else    RESULT=a;
+:} | BO COND:a BC {: RESULT=a;
 :};
 
-CONDATTR::= ATTR:a CONDOP:cond ATTR:b {:
+CONDATTR::= EXP:a CONDOP:cond EXP:b {:
     System.out.println("got into ATTR CONDOP ATTR");
     Function f=functions.get(functionName);
     if(!b.type.equals("double"))  f.functionOutput.append("\n%"+(++f.regId)+"= icmp "+getCondIrOp(cond,true)+" "+a.type+" "+a.getReg()+","+b.getReg());
     else f.functionOutput.append("\n%"+(++f.regId)+"= fcmp "+getCondIrOp(cond,false)+" "+a.type+" "+a.getReg()+","+b.getReg());
     System.out.println("Got over condattr reduce with reg:"+f.regId);
     RESULT=new Attribute("i1",f.regId);
-:}| ATTR:a {:RESULT=a;:};
+:}| EXP:a {:RESULT=a;:};
 
 CONDOP::= LESS {:RESULT=operations.LESS;:} | GREATER {:RESULT=operations.GRT;:} | LESSEQ {:RESULT=operations.LSE;:} | GREATEREQ {:RESULT=operations.GRE;:} | EQUAL {:RESULT=operations.EQ;:};
 
 //function declaration
 
 FUNCTION::=FUNCDef:f GO FSTMTS GC {:
+    if(!f.returned){
+        if(f.retType.equals("void"))    f.functionOutput.append("\nret void");
+        else    System.out.println("Didn't have a return statement and function isn't of type void");
+    }
     outputBuffer.append("{\n"+f.functionOutput+"\n}");
     inFunction=false;
     functionName="";
+    scopes.remove(scopes.size()-1);
 :};
 
 FUNCDef::=FUNC ID:name BO PARlist:l BC RETVAL:r{:
@@ -954,6 +1118,8 @@ FUNCDef::=FUNC ID:name BO PARlist:l BC RETVAL:r{:
     System.out.println("Function "+name+" found!");
     outputBuffer.append("\ndefine "+r+" @"+name+" ("+l.stream().map(e->e.type.irDec()+" %"+e.name).collect(Collectors.joining(","))+")");
     Function f=new Function(name,r,l);
+    f.scope=new Scope();
+    scopes.add(f.scope);
     functions.put(name,f);
     l.forEach(e->{
         if(!e.inout){
@@ -961,7 +1127,7 @@ FUNCDef::=FUNC ID:name BO PARlist:l BC RETVAL:r{:
             Value v=new Value(e.type);
             v.setReg(f.regId);
             f.functionOutput.append("\nstore "+e.type.irDec()+" %"+e.name+", "+e.type.irDec()+"* %"+f.regId);
-            f.letMap.put(e.name,v);
+            f.scope.constants.put(e.name,v);
         }
         else{
             f.functionOutput.append("\n%"+(++f.regId)+" = alloca "+e.type.irDec()+"*");
@@ -970,7 +1136,7 @@ FUNCDef::=FUNC ID:name BO PARlist:l BC RETVAL:r{:
             f.functionOutput.append("\n%"+(++f.regId)+" = load "+e.type.irDec()+"*,"+e.type.irDec()+"** %"+f.regId);
             Value v=new Value(e.type);
             v.setReg(f.regId);
-            f.varMap.put(e.name,v);
+            f.scope.variables.put(e.name,v);
         }
     });
     RESULT=f;
@@ -997,6 +1163,22 @@ FTYPE::= COL INOUTF:i TList:t {:RESULT=new FValue(i,t);:}| COL INOUTF:i TList:t 
 INOUTF::=INOUT {:RESULT=true;:} | {:RESULT=false;:};
 
 FSTMTS::= FSTMTS STM | STM;
+
+RET::= RETURN EXP:e {:
+    Function f=functions.get(functionName);
+    if(f.retType.equals(e.type)){
+        f.functionOutput.append("\nret "+e.type+" "+e.getReg());
+        f.returned=true;
+    }
+    else System.out.println("Returning a type that doesn't match with the return type of the function");
+:} | RETURN {:
+    Function f=functions.get(functionName);
+    if(!f.retType.equals("void")) System.out.println("REturning nothing from a non void function");
+    else{
+        f.functionOutput.append("\nret void");
+        f.returned=true;
+    }
+:};
 
 //Class parser
 
