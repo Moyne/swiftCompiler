@@ -52,6 +52,8 @@ ws = [ \t]
 "if" { return symbol(sym.IF); }
 "else if" { return symbol(sym.ELIF); }
 "else" { return symbol(sym.ELSE); }
+"break" { return symbol(sym.BREAK); }
+"continue" { return symbol(sym.CONTINUE); }
 "return" { return symbol(sym.RETURN); }
 "," { return symbol(sym.C); }
 "=" { return symbol(sym.EQ); }
