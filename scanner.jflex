@@ -7,6 +7,7 @@ import java_cup.runtime.*;
 %cup
 %line
 %column
+%state STRINGINTERPOLATION
 id=[\_a-zA-Z][\_a-zA-Z0-9]*
 int=  [0-9] | [1-9][0-9]*
 double =  ((([0-9]+\.[0-9]*) | ([0-9]*\.[0-9]+)) (e|E('+'|'-')?[0-9]+)?)
@@ -33,9 +34,9 @@ ws = [ \t]
 {double} { return symbol(sym.DOUBLEVAL,new Double(yytext())); }
 {int} { return symbol(sym.INTVAL,new Integer(yytext())); }
 {string} { return symbol(sym.STRINGVAL,yytext().substring(1,yytext().length()-1).replace("\n","\\"+"0A")); }
-{stringInterpolationStart} { return symbol(sym.STRINGVALS,yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A")); }
-{stringInterpolationIntermediate} { return symbol(sym.STRINGVALI,yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A")); }
-{stringInterpolationEnd} { return symbol(sym.STRINGVALE,yytext().substring(1,yytext().length()-1).replace("\n","\\"+"0A")); }
+{stringInterpolationStart} { yybegin(STRINGINTERPOLATION);return symbol(sym.STRINGVALS,yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A")); }
+<STRINGINTERPOLATION> {stringInterpolationIntermediate} { return symbol(sym.STRINGVALI,yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A")); }
+<STRINGINTERPOLATION> {stringInterpolationEnd} { yybegin(YYINITIAL);return symbol(sym.STRINGVALE,yytext().substring(1,yytext().length()-1).replace("\n","\\"+"0A")); }
 "print" { return symbol(sym.PRINT); }
 "inout" { return symbol(sym.INOUT); }
 "class" { return symbol(sym.CLASS); }
@@ -68,6 +69,7 @@ ws = [ \t]
 "<" { return symbol(sym.LESS); }
 "<=" { return symbol(sym.LESSEQ); }
 "&&" { return symbol(sym.AND); }
+"&" { return symbol(sym.DEREF); }
 "||" { return symbol(sym.OR); }
 "!" { return symbol(sym.NOT); }
 "." { return symbol(sym.DOT); }
