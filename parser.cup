@@ -25,6 +25,14 @@ parser code {:
             this.constants=new HashMap<String,Value>();
         }
     }
+    public class Tuple{
+        public Value value;
+        public String name;
+        public Tuple(String name,Value value){
+            this.name=name;
+            this.value=value;
+        }
+    }
     public class Parameter{
         public boolean argLabel;
         public String name;
@@ -44,28 +52,6 @@ parser code {:
         }
         public void setArrayDim(){
             this.arrDim=true;
-        }
-    }
-    public class ClassType{
-        public int variableIndex;
-        public HashMap<String,Function> functions;
-        public StringBuffer constructor;
-        public Scope scope;
-        public String name;
-        public StringBuffer typeDef;
-        public int constructorReg;
-        public ClassType(String name){
-            this.name=name;
-            this.scope=new Scope();
-            this.variableIndex=0;
-            this.constructor=new StringBuffer();
-            this.functions=new HashMap<String,Function>();
-            this.constructor.append("define void @"+name+".default.constructor(%"+name+"* %self){");
-            this.typeDef=new StringBuffer();
-            this.constructorReg=0;
-        }
-        public String irDec(){
-            return "%"+name;
         }
     }
     public class Function{
@@ -198,6 +184,10 @@ parser code {:
                 return res.toString();
             }
         }
+        public String getBaseType(){
+            if(this.last) return this.value.get(0).type;
+            else return this.arraysInside.get(0).getBaseType();
+        }
         public ArrayList<Integer> getDimensions(){
             ArrayList<Integer> dims=new ArrayList<Integer>();
             if(this.last){
@@ -217,14 +207,11 @@ parser code {:
         public boolean array=false;
         public boolean doub=false;
         public boolean classRef=false;
-        public boolean inClass=false;
         public boolean funcPar=false;
         public boolean initialized;
         public boolean primitive;
         public boolean inoutPar=false;
         public int sizeInt=0;
-        public int indexClass;
-        public ClassType classType;
         public int pointerAllocated=(-1);
         public boolean global=false;
         public String name;
@@ -239,13 +226,10 @@ parser code {:
             this.array=o.array;
             this.classRef=o.classRef;
             this.sizeInt=o.sizeInt;
-            this.classType=o.classType;
-            this.inClass=o.inClass;
             this.funcPar=o.funcPar;
             this.initialized=o.initialized;
             this.primitive=o.primitive;
             this.inoutPar=o.inoutPar;
-            this.indexClass=o.indexClass;
             this.dimensionsParameters=o.dimensionsParameters;
             this.dimensions=o.dimensions;
             this.immediateInitialization=o.immediateInitialization;
@@ -277,11 +261,6 @@ parser code {:
             this.primitive=!str;
             this.doub=!str;
         }
-        public Value(ClassType obj){
-            this.classType=obj;
-            this.classRef=true;
-            this.primitive=false;
-        }
         public void setImmediateInit(Object obj){
             this.initialized=true;
             this.immediateInitialization=obj;
@@ -293,10 +272,6 @@ parser code {:
             this.funcPar=true;
             this.inoutPar=inout;
         }
-        public void setClassProperty(int index){
-            this.inClass=true;
-            this.indexClass=index;
-        }
         public void addArrLevel(){
             if(!this.array){
                 this.array=true;
@@ -304,6 +279,14 @@ parser code {:
                 this.dimensions.add(10);
             }
             else this.dimensions.add(10);
+        }
+        public void addArrLevel(int i){
+            if(!this.array){
+                this.array=true;
+                this.dimensions=new ArrayList<Integer>();
+                this.dimensions.add(i);
+            }
+            else this.dimensions.add(i);
         }
         public void addFunctionDimension(String x){
             this.dimensionsParameters.add(x);
@@ -315,7 +298,6 @@ parser code {:
             if(this.str) return "i8*";
             else if(this.integer) return "i"+this.sizeInt;
             else if(this.doub) return "double";
-            else if(this.classRef) return this.classType.irDec();
             else return "ERROR";
         }
         public void setReg(int regId){
@@ -363,8 +345,7 @@ parser code {:
     public StringBuffer outputBuffer=new StringBuffer();
     public StringBuffer errorBuffer=new StringBuffer();
     public StringBuffer globalBuffer=new StringBuffer();
-    public boolean errors=false;
-    public HashMap<String,ClassType> classes=new HashMap<String,ClassType>();
+    public int errors=0;
     public HashMap<String,Function> functions=new HashMap<String,Function>();
     public int regid=0;
     public int stringIndex=(-1);
@@ -373,30 +354,19 @@ parser code {:
     public int currentIf=0;
     public int currentFor=0;
     public boolean inConditional=false;
-    public boolean inClass=false;
-    public String className;
     public ArrayList<String> callingFunction=new ArrayList<String>();
     public ArrayList<Integer> callingFunctionPar=new ArrayList<Integer>();
     public ArrayList<Integer> forloops=new ArrayList<Integer>();
     public void append(String x){
-        if(inFunction){
-            if(inClass) classes.get(className).functions.get(functionName).functionOutput.append(x);
-            else    functions.get(functionName).functionOutput.append(x);
-        }
+        if(inFunction)  functions.get(functionName).functionOutput.append(x);
         else    errorBuffer.append("\nCannot execute instructions outside of a function");
     }
     public int getId(){
-        if(inFunction){
-            if(inClass) return ++classes.get(className).functions.get(functionName).regId;
-            else    return ++functions.get(functionName).regId;
-        }
+        if(inFunction)  return ++functions.get(functionName).regId;
         else return -1;
     }
     public int getCurrentId(){
-        if(inFunction){
-            if(inClass) return classes.get(className).functions.get(functionName).regId;
-            else    return functions.get(functionName).regId;
-        }
+        if(inFunction)  return functions.get(functionName).regId;
         else return -1;
     }
     public String getIrOp(operations op,String type){
@@ -480,22 +450,6 @@ parser code {:
             }
         }
     }
-    public void storeConstrClassRow(int i,ArrayDec a){
-        ClassType ct=classes.get(className);
-        if(a.last){
-            for(int j=0;j<a.value.size();j++){
-                ct.constructor.append("\n%"+(++ct.constructorReg)+" = getelementptr inbounds "+a.type+","+a.type+"* %"+i+",i32 0,i32 "+j);
-                ct.constructor.append("\nstore "+a.value.get(j).type+" "+a.value.get(j).getReg()+","+a.value.get(j).type+"* %"+ct.constructorReg);
-            }
-            return;
-        }
-        else{
-            for(int j=0;j<a.arraysInside.size();j++){
-                ct.constructor.append("\n%"+(++ct.constructorReg)+" = getelementptr inbounds "+a.type+","+a.type+"* %"+i+",i32 0,i32 "+j);
-                storeConstrClassRow(ct.constructorReg,a.arraysInside.get(j));
-            }
-        }
-    }
     public String getCondIrOp(operations cond,boolean integer){
         if(cond==operations.LESS){
             if(integer) return "slt";
@@ -542,26 +496,26 @@ terminal STRING,DOUBLE,INT,FUNC,USCORE;
 terminal PLUS,MINUS,DIV,MUL;
 terminal LESS,GREATER,LESSEQ,GREATEREQ,AND,OR,EQUAL,NOT;
 terminal ELIF,ELSE,IF,FOR,IN,WHILE,DOT;
-terminal QO,QC,INOUT,CLASS;
+terminal QO,QC,INOUT;
 terminal PRINT,RETURN;
 terminal BREAK,CONTINUE,DEREF;
 terminal uminus;
 
-non terminal PROG,DEC,IDINITlist,INIT;
-non terminal ASS,STMS,STM,FUNCTION,FSTMTS;
+non terminal PROG,DEC;
+non terminal HashMap<String,Value> IDINITlist;
+non terminal Tuple INIT;
+non terminal ASS,STMS,STM,FUNCTION,FSTMTS,FSTM,CONDSTM,CONDSTMS;
 non terminal WHILECOND,FORCOND;
-non terminal ATTRL;
-non terminal CLASSDEF;
 non terminal ArrayList<String> IDlist;
 non terminal Value TYPE;
 non terminal Attribute VAL;
 non terminal Value TList,T;
 non terminal operations OP;
 non terminal Attribute ATTR,EXP,PROC;
-non terminal Parameter PAR,CLABEL;
+non terminal Parameter PAR;
 non terminal ArrayList<Parameter> PARlist;
 non terminal Attribute CPAR;
-non terminal ArrayList<Attribute> CPARlist;
+non terminal ArrayList<Attribute> CPARlist,CPAREList;
 non terminal String RETVAL;
 non terminal Value FTYPE;
 non terminal Boolean INOUTF;
@@ -586,69 +540,35 @@ precedence left uminus;
 
 start with PROG;
 
-PROG::= {:scopes.add(globalScope);:} STMS {:System.out.println("At the end the global buffer has:\n"+globalBuffer+"\nand theoutput buffer has:\n"+outputBuffer+"\n");:};
+PROG::= {:scopes.add(globalScope);:} STMS {:
+    if(errors==0)   System.out.println(globalBuffer+"\n"+outputBuffer+"\n");
+    else System.out.println("There were "+errors+"errors, here there are:\n"+ errorBuffer);
+:} ;
 
 //declarations of variables
 
 DEC::= LET IDlist:l TYPE:t {: 
 l.forEach(a->{
     if(!inFunction){
-        if(inClass){
-            if(t.initialized){
-                ClassType ct=classes.get(className);
-                ct.constructor.append("\n%"+(++ct.constructorReg)+"= getelementptr inbounds %"+className+",%"+className+"* %self,i32 0,i32 "+ct.variableIndex);
-                int id=ct.constructorReg;
-                if(t.array){
-                    ArrayDec dec=(ArrayDec) t.immediateInitialization;
-                    storeConstrClassRow(id,dec);
-                }
-                else{
-                    Attribute att=(Attribute) t.immediateInitialization;
-                    ct.constructor.append("\nstore "+t.irDec()+" "+att.getReg()+","+t.irDec()+"* %"+id);
-                }
-                if(ct.variableIndex==0) ct.typeDef.append(t.irDec());
-                else ct.typeDef.append(","+t.irDec());
-                Value v=new Value(t);
-                v.setClassProperty(ct.variableIndex);
-                ct.variableIndex++;
-                scopes.get(scopes.size()-1).constants.put(a,v);
-            }
-            else if(t.classRef){
-                ClassType ct=classes.get(className);
-                ct.constructor.append("\n%"+(++ct.constructorReg)+"= getelementptr inbounds %"+className+",%"+className+"* %self,i32 0,i32 "+ct.variableIndex);
-                ct.constructor.append("\ncall void ("+t.irDec()+"*) @"+t.classType.name+".default.constructor("+t.irDec()+"* %"+ct.constructorReg+")");
-                Value v=new Value(t);
-                v.setClassProperty(ct.variableIndex);
-                ct.variableIndex++;
-                scopes.get(scopes.size()-1).constants.put(a,v);
+        if(t.initialized){
+            if(t.array){
+                ArrayDec dec=(ArrayDec) t.immediateInitialization;
+                if(dec.allImmediates) globalBuffer.append("\n@"+a+" = global "+dec.type+" "+dec.printValue());
+                else errorBuffer.append("\nCannot initialize a global variable that doesn't have static values");
             }
             else{
-                errorBuffer.append("\ncannot declare a property of a class and not initialize it directly");
-            }
-        }
-        else{
-            if(t.initialized){
-                if(t.array){
-                    ArrayDec dec=(ArrayDec) t.immediateInitialization;
-                    if(dec.allImmediates) globalBuffer.append("\n@"+a+" = global "+dec.type+" "+dec.printValue());
-                    else errorBuffer.append("Cannot initialize a global variable that doesn't have static values");
-                }
+                Attribute att=(Attribute) t.immediateInitialization;
+                if(att.immediate)   globalBuffer.append("\n@"+a+"= global "+t.irDec()+" "+att.getReg()+",align 4");
                 else{
-                    Attribute att=(Attribute) t.immediateInitialization;
-                    if(att.immediate)   globalBuffer.append("\n@"+a+"= global "+t.irDec()+" "+att.getReg()+",align 4");
-                    else{
-                        errorBuffer.append("\ncannot declare and initialize a global variable with a dynamic value");
-                    }
+                    errorBuffer.append("\ncannot declare and initialize a global variable with a dynamic value");
+                    errors++;
                 }
             }
-            else if(t.classRef){
-                errorBuffer.append("\ncannot have a global variable that is an object");
-            }
-            else globalBuffer.append("\n@"+a+" = global "+t.irDec()+" zeroinitializer");
-            Value v=new Value(t);
-            v.setReg(a);
-            scopes.get(scopes.size()-1).constants.put(a,v);
         }
+        else globalBuffer.append("\n@"+a+" = global "+t.irDec()+" zeroinitializer");
+        Value v=new Value(t);
+        v.setReg(a);
+        scopes.get(scopes.size()-1).constants.put(a,v);
     }
     else{
         int id=getId();
@@ -664,9 +584,6 @@ l.forEach(a->{
                 append("\nstore "+t.irDec()+" "+att.getReg()+","+t.irDec()+"* %"+id);
             }
         }
-        else if(t.classRef){
-            append("\ncall void ("+t.irDec()+"*) @"+t.classType.name+".default.constructor("+t.irDec()+"* %"+id+")");
-        }
         Value v=new Value(t);
         v.setReg(id);
         scopes.get(scopes.size()-1).constants.put(a,v);
@@ -678,7 +595,7 @@ l.forEach(a->{
             if(t.array){
                 ArrayDec dec=(ArrayDec) t.immediateInitialization;
                 if(dec.allImmediates) globalBuffer.append("\n@"+a+" = global "+dec.type+" "+dec.printValue());
-                else errorBuffer.append("Cannot initialize a global variable that doesn't have static values");
+                else errorBuffer.append("\nCannot initialize a global variable that doesn't have static values");
             }
             else{
                 Attribute att=(Attribute) t.immediateInitialization;
@@ -708,7 +625,11 @@ l.forEach(a->{
         v.setReg(id);
         scopes.get(scopes.size()-1).variables.put(a,v);
     }
-});:} | LET IDINITlist | VAR IDINITlist;
+});:} | LET IDINITlist:l {:
+    scopes.get(scopes.size()-1).constants.putAll(l);
+:} | VAR IDINITlist:l {:
+    scopes.get(scopes.size()-1).variables.putAll(l);
+:};
 
 IDlist::= IDlist:l C ID:x {: ArrayList<String> arr= new ArrayList<String>(l);
                             arr.add(x);
@@ -716,16 +637,67 @@ IDlist::= IDlist:l C ID:x {: ArrayList<String> arr= new ArrayList<String>(l);
                             arr.add(x);
                             RESULT=arr;:};
 
-IDINITlist::= IDINITlist C INIT | INIT;
+IDINITlist::= IDINITlist:l C INIT:i {:
+    if(i!=null) l.put(i.name,i.value);
+    RESULT=l;
+:} | INIT:i {:
+    HashMap<String,Value> res=new HashMap<String,Value>();
+    if(i!=null) res.put(i.name,i.value);
+    RESULT=res;
+:};
 
-INIT::= ID EQ VAL | ID:i EQ ARRVALE:l {:
-    Function f=functions.get(functionName);
-    System.out.println("Arrived at def of "+i+" that is arrval with type: "+l.type);
-    f.functionOutput.append("\n%"+(++f.regId)+" = alloca "+l.type);
-    storeRow(f.regId,l);
-    Value v=new Value(l.type);
-    v.setReg(f.regId);
-    scopes.get(scopes.size()-1).variables.put(i,v);
+INIT::= ID:i EQ VAL:l {:
+    if(inFunction){
+        int id=getId();
+        append("\n%"+id+"= alloca "+l.type+",align 4");
+        append("\nstore "+l.type+" "+l.getReg()+","+l.type+"* %"+id);
+        Value v=new Value(l.type);
+        v.setImmediateInit(l);
+        v.setReg(id);
+        RESULT=new Tuple(i,v);
+    }
+    else{
+        if(l.immediate){
+            globalBuffer.append("\n@"+i+" = global "+l.type+" "+l.getReg());
+            Value v=new Value(l.type);
+            v.setImmediateInit(l);
+            v.setReg(i);
+            RESULT=new Tuple(i,v);
+        }
+        else{
+            errorBuffer.append("\nCannot initialize a global variable that doesn't have static values");
+            errors++;
+            RESULT=null;
+        }
+    }
+:} | ID:i EQ ARRVALE:l {:
+    if(inFunction){
+        int id=getId();
+        append("\n%"+id+"= alloca "+l.type+",align 4");
+        storeRow(id,l);
+        Value v=new Value(l.getBaseType());
+        ArrayList<Integer> dimensions=l.getDimensions();
+        dimensions.forEach(e->v.addArrLevel(e));
+        v.setImmediateInit(l);
+        v.setReg(id);
+        RESULT=new Tuple(i,v);
+    }
+    else{
+        if(l.allImmediates){
+            globalBuffer.append("\n@"+i+" = global "+l.type+" "+l.printValue());
+            Value v=new Value(l.getBaseType());
+            ArrayList<Integer> dimensions=l.getDimensions();
+            dimensions.forEach(e->v.addArrLevel(e));
+            v.setImmediateInit(l);
+            v.setReg(i);
+            RESULT=new Tuple(i,v);
+        }
+        else{
+            errorBuffer.append("\nCannot initialize a global variable that doesn't have static values");
+            errors++;
+            RESULT=null;
+        }
+    }
 :} ;
 
 TYPE::= COL TList:t {:RESULT=t;:}| COL TList:t EQ VAL:v {:
@@ -746,9 +718,7 @@ STR::= STRINGVAL:s {:
         append("\n%"+getId()+" = getelementptr inbounds ["+s.length()+" x i8], ["+s.length()+" x i8]* @.str."+stringIndex+" , i32 0, i32 0");
         RESULT=new Attribute("i8*",getCurrentId());
     }
-    else{
-        RESULT=new Attribute("getelementptr inbounds (["+s.length()+" x i8], ["+s.length()+" x i8]* @.str."+stringIndex+" , i32 0, i32 0)","["+(s.length()+1)+" x i8]");
-    }
+    else    RESULT=new Attribute("getelementptr inbounds (["+s.length()+" x i8], ["+s.length()+" x i8]* @.str."+stringIndex+" , i32 0, i32 0)","["+(s.length()+1)+" x i8]");
 :}| STRINGVALS:s STRINGVALINTERP:i STRINGVALE:e{:
     globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(s.length()+1)+" x i8] c\""+s+"\\00\"");
     globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(e.length()+1)+" x i8] c\""+e+"\\00\"");
@@ -791,10 +761,11 @@ STRINGVALINTERP::= STRINGVALINTERP:i STRINGVALI:s EXP:e {:
     RESULT=stringGepPointer;
 :};
 
+
 ARRVALE::= QO ARRVALE:l QC {:
     l.close();
     RESULT=l;
-:}| ARRVALE:l C ARRVALE:a {:
+:}| ARRVALE:l C ARRVAL:a {:
     if(l.closed && a.closed){
         ArrayList<ArrayDec> arr=new ArrayList<ArrayDec>();
         arr.add(l);
@@ -802,9 +773,9 @@ ARRVALE::= QO ARRVALE:l QC {:
         RESULT=new ArrayDec(arr,a.type,false,a.allImmediates&&l.allImmediates);
     }
     else{
-        a.arraysInside.add(0,l);
-        a.allImmediates=a.allImmediates&&l.allImmediates;
-        RESULT=a;
+        l.arraysInside.add(a);
+        l.allImmediates=a.allImmediates&&l.allImmediates;
+        RESULT=l;
     }
 :}| ARRVAL:a {:RESULT=a;:};
 
@@ -820,7 +791,11 @@ ARRVAL::= QO EXPL:l QC {:
 :};
 
 EXPL::= EXPL:l C EXP:e {:
-    l.add(e);
+    if(l.get(l.size()-1).type.equals(e.type)) l.add(e);
+    else{
+        errors++;
+        errorBuffer.append("\nCannot have heterogenous arrays");
+    }
     RESULT=l;
 :} | EXP:e {:
     ArrayList<Attribute> l=new ArrayList<Attribute>();
@@ -833,66 +808,91 @@ TList::= QO TList:t QC {:
     RESULT=t;
 :}| T:t {:RESULT=t;:};
 
-T::=STRING {:RESULT=new Value(true);:}| DOUBLE {:RESULT=new Value(false);:}| INT{:RESULT=new Value(32);:} | ID:name {:
-    boolean cont=false;
-    for (String key : classes.keySet()) {
-        if (name.contains(key)) {
-            cont=true;
-            break;
-        }
-    }
-    if(!cont){
-        errors=true;
-        errorBuffer.append("\nTried to assign a non specified type to a variable");
-    }
-    else    RESULT=new Value(classes.get(name));
-:};
+T::=STRING {:RESULT=new Value(true);:}| DOUBLE {:RESULT=new Value(false);:}| INT{:RESULT=new Value(32);:} ;
 
 //assignment
 
 ASS::= ID:a EQ EXP:e {:
-    String type=getVarIrDec(a);
+    Value v=getValue(a);
+    if(a==null || e==null)  return null;
+    String type=v.irDec();
     if(!e.type.equals(type)){
-        System.out.println("\t\t\tERRORRRRR IN ASSINGMENT");
+        errors++;
+        errorBuffer.append("\nType mismatch in assignment");
     }
-    System.out.println("\n\tInside ASSIGNMENT;  with exp: "+e.type+" and id of type: "+type);
-    append("\nstore "+type+" "+e.getReg()+","+type+"* "+getRegVar(a));
+    //System.out.println("\n\tInside ASSIGNMENT;  with exp: "+e.type+" and id of type: "+type);
+    else    append("\nstore "+type+" "+e.getReg()+","+type+"* "+getRegVar(a));
 :} | IDARR:a EQ EXP:e {:
-    append("\nstore "+e.type+" "+e.getReg()+","+a.type+"* "+a.getReg());
+    if(a==null || e==null)  return null;
+    if(!e.type.equals(a.type)){
+        errors++;
+        errorBuffer.append("\nType mismatch in assignment");
+    }
+    else    append("\nstore "+e.type+" "+e.getReg()+","+a.type+"* "+a.getReg());
 :} | ID:a OP:op EQ EXP:e {:
-    String type=getVarIrDec(a);
+    Value v=getValue(a);
+    if(a==null || e==null)  return null;
+    String type=v.irDec();
     if(!e.type.equals(type)){
-        System.out.println("\t\t\tERRORRRRR IN ASSINGMENT");
+        errors++;
+        errorBuffer.append("\nType mismatch in assignment");
     }
-    System.out.println("\n\tInside ASSIGNMENT;  with exp: "+e.type+" and id of type: "+type);
-    if(type.equals("i8*")){
-        if(op==operations.ADD){
-            append("\n%"+getId()+"= alloca [200 x i8]");
-            int newArr=getCurrentId();
-            append("\n%"+getId()+"= getelementptr inbounds [200 x i8],[200 x i8]* %"+newArr+",i32 0, i32 0");
-            int idPointer=getCurrentId();
-            append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idPointer+",i8* "+getRegVar(a)+")");
-            append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+idPointer+",i8* "+e.getReg()+")");
-            append("\nstore i8* %"+idPointer+",i8** "+getRegVar(a));
-        }
-        else errorBuffer.append("\nonly operation allowed on string is the add");
-    }
+    //System.out.println("\n\tInside ASSIGNMENT;  with exp: "+e.type+" and id of type: "+type);
     else{
-        //String type=getVarIrDec(a);
-        int id;
-        append("\n%"+getId()+"= load "+type+","+type+"* "+getRegVar(a));
-        id=getCurrentId();
-        append("\n%"+getId()+" = "+getIrOp(op,e.type)+" "+e.type+" %"+id+","+e.getReg());
-        append("\nstore "+e.type+" %"+getCurrentId()+","+e.type+"* "+getRegVar(a));
+        if(type.equals("i8*")){
+            if(op==operations.ADD){
+                append("\n%"+getId()+"= alloca [200 x i8]");
+                int newArr=getCurrentId();
+                append("\n%"+getId()+"= getelementptr inbounds [200 x i8],[200 x i8]* %"+newArr+",i32 0, i32 0");
+                int idPointer=getCurrentId();
+                append("\n%"+getId()+"= load i8*,i8** "+v.getReg());
+                int idA=getCurrentId();
+                append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idPointer+",i8* %"+idA+")");
+                append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+idPointer+",i8* "+e.getReg()+")");
+                append("\nstore i8* %"+idPointer+",i8** "+v.getReg());
+            }
+            else errorBuffer.append("\nonly operation allowed on string is the add");
+        }
+        else{
+            //String type=getVarIrDec(a);
+            int id;
+            append("\n%"+getId()+"= load "+type+","+type+"* "+v.getReg());
+            id=getCurrentId();
+            append("\n%"+getId()+" = "+getIrOp(op,e.type)+" "+e.type+" %"+id+","+e.getReg());
+            append("\nstore "+e.type+" %"+getCurrentId()+","+e.type+"* "+v.getReg());
+        }
     }
 :};
 
-CPAR::= CLABEL:p EXP:e {:
+CPAR::= ID:name COL EXP:e {:
+    Parameter p=functions.get(callingFunction.get(callingFunction.size()-1)).pars.get(callingFunctionPar.size()-1);
+    if(p.argLabel){
+        if(!p.label.equals(name)){
+            errorBuffer.append("\nExpected "+p.label+" as the label for the parameter instead received "+name);
+            errors++;
+        }
+    }
+    else{
+        errorBuffer.append("\nDidn't expect a label for the parameter instead received "+name);
+        errors++;
+    }
     if(!p.type.irDec().equals(e.type)){
-        errorBuffer.append("Type mismatch in parameter passing");
+        errorBuffer.append("\nType mismatch in parameter passing");
+        errors++;
     }
     RESULT=e;
-:} | CLABEL ID:i {:
+:} | EXP:e {:
+    Parameter p=functions.get(callingFunction.get(callingFunction.size()-1)).pars.get(callingFunctionPar.size()-1);
+    if(p.argLabel){
+        errorBuffer.append("\nExpected "+p.label+" as the label for the parameter instead the label is missing");
+        errors++;
+    }
+    if(!p.type.irDec().equals(e.type)){
+        errorBuffer.append("Type mismatch in parameter passing");
+        errors++;
+    }
+    RESULT=e;
+:} | ID:i {:
     Value v=getValue(i);
     if(v.array){
         if(v.funcPar){
@@ -935,77 +935,164 @@ CPAR::= CLABEL:p EXP:e {:
         append("\n%"+getId()+"= load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
         RESULT=new Attribute(v.irDec(),getCurrentId(),i);
     }
-:} | CLABEL IDARR:i | CLABEL:p DEREF ID:i | CLABEL:p DEREF IDARR:i ;
-
-CLABEL::= ID:name COL {:
-    Parameter p=functions.get(callingFunction.get(callingFunction.size()-1)).pars.get(callingFunctionPar.size()-1);
-    if(p.argLabel){
-        if(!p.label.equals(name)){
-            errorBuffer.append("Expected "+p.label+" as the label for the parameter instead received "+name);
+:} | ID:name COL ID:i {:
+    Value v=getValue(i);
+    if(v.array){
+        if(v.funcPar){
+            append("\n%"+getId()+" = load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
+            RESULT=new Attribute(v.getBaseType(),i,getCurrentId(),v.dimensionsParameters);
+        }
+        else{
+            String type=v.irDec();
+            int lastId=-1;
+            ArrayList<Integer> subdim=new ArrayList<Integer>();
+            for(int j=0;j<v.dimensions.size();j++){
+                String newType,subir;
+                if(j>0){
+                    append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* %"+lastId+",i32 0,i32 0");
+                    subir=type.substring(1,type.length()-1);
+                    if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
+                    else newType=subir.substring(subir.indexOf("["),subir.length());
+                    type=newType;
+                    lastId=getCurrentId();
+                }
+                else{
+                    append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* "+v.getReg()+",i32 0,i32 0");
+                    subir=type.substring(1,type.length()-1);
+                    if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
+                    else newType=subir.substring(subir.indexOf("["),subir.length());
+                    type=newType;
+                    lastId=getCurrentId();
+                    subdim.add(v.dimensions.get(j));
+                }
+            }
+            if(subdim.size()>0) RESULT=new Attribute(type,i,subdim,lastId);
+            else RESULT=new Attribute(type,lastId,i);
         }
     }
+    else if(v.str){
+        append("\n%"+getId()+"= getelementptr "+v.irDec()+","+v.irDec()+"* "+v.getReg()+",i32 0,i32 0");
+        RESULT=new Attribute(v.irDec(),getCurrentId(),i);
+    }
     else{
-        errorBuffer.append("Didn't expect a label for the parameter instead received "+name);
+        append("\n%"+getId()+"= load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
+        RESULT=new Attribute(v.irDec(),getCurrentId(),i);
     }
-    RESULT=p;
-:} | {:
-    Parameter p=functions.get(callingFunction.get(callingFunction.size()-1)).pars.get(callingFunctionPar.size()-1);
-    if(p.argLabel){
-        errorBuffer.append("Expected "+p.label+" as the label for the parameter instead the label is missing");
-    }
-    RESULT=p;
-:} ;
+:} | IDARR:i | ID:name COL IDARR:i | DEREF IDARR:i | DEREF ID:i | ID:name COL DEREF IDARR:i | ID:name COL DEREF ID:i ;
 
 EXP::= EXP:e PLUS EXP:a {:
-    int id;
-    if(e.immediate){
-        if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.ADD,e.type)+" "+e.type+" "+e.immediateValue+","+a.immediateValue);
-        else append("\n%"+getId()+"= "+getIrOp(operations.ADD,e.type)+" "+e.type+" "+e.immediateValue+","+a.getReg());
+    if(e==null || a==null)  RESULT=null;
+    else if(!e.type.equals(a.type)){
+        errors++;
+        errorBuffer.append("\nType mismatch in assignment");
+        RESULT=e;
+    }
+    else if(!e.type.equals("double") && !e.type.equals("i32") && !e.type.equals("i8*")){
+        errorBuffer.append("\nCan do substractions only on integeres,strings and doubles!");
+        errors++;
+        RESULT=e;
     }
     else{
-        if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.ADD,e.type)+" "+e.type+" "+e.getReg()+","+a.immediateValue);
-        else append("\n%"+getId()+"= "+getIrOp(operations.ADD,e.type)+" "+e.type+" "+e.getReg()+","+a.getReg());
+        int id;
+        if(e.type.equals("i8*")){
+            append("\n%"+getId()+"= alloca [200 x i8]");
+            int newArr=getCurrentId();
+            append("\n%"+getId()+"= getelementptr inbounds [200 x i8],[200 x i8]* %"+newArr+",i32 0, i32 0");
+            id=getCurrentId();
+            append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+id+",i8* "+e.getReg()+")");
+            append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+id+",i8* "+a.getReg()+")");
+            RESULT=new Attribute("i8*",id);
+        }
+        else{
+            if(e.immediate){
+                if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.immediateValue+","+a.immediateValue);
+                else append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.immediateValue+","+a.getReg());
+            }
+            else{
+                if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.getReg()+","+a.immediateValue);
+                else append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.getReg()+","+a.getReg());
+            }
+        }
+        id=getCurrentId();
+        RESULT=new Attribute(e.type,id);
     }
-    id=getCurrentId();
-    RESULT=new Attribute(e.type,id);
 :}| ATTR:a {:
     RESULT=a;
 :}| EXP:e MINUS EXP:a {:
-    int id;
-    if(e.immediate){
-        if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.immediateValue+","+a.immediateValue);
-        else append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.immediateValue+","+a.getReg());
+    if(e==null || a==null)  RESULT=null;
+    else if(!e.type.equals(a.type)){
+        errors++;
+        errorBuffer.append("\nType mismatch in assignment");
+        RESULT=e;
+    }
+    else if(!e.type.equals("double") && !e.type.equals("i32")){
+        errorBuffer.append("\nCan do substractions only on integeres and doubles!");
+        errors++;
+        RESULT=e;
     }
     else{
-        if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.getReg()+","+a.immediateValue);
-        else append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.getReg()+","+a.getReg());
+        int id;
+        if(e.immediate){
+            if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.immediateValue+","+a.immediateValue);
+            else append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.immediateValue+","+a.getReg());
+        }
+        else{
+            if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.getReg()+","+a.immediateValue);
+            else append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.getReg()+","+a.getReg());
+        }
+        id=getCurrentId();
+        RESULT=new Attribute(e.type,id);
     }
-    id=getCurrentId();
-    RESULT=new Attribute(e.type,id);
 :} | EXP:e MUL EXP:a {:
-    int id;
-    if(e.immediate){
-        if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.MUL,e.type)+" "+e.type+" "+e.immediateValue+","+a.immediateValue);
-        else append("\n%"+getId()+"= "+getIrOp(operations.MUL,e.type)+" "+e.type+" "+e.immediateValue+","+a.getReg());
+    if(e==null || a==null)  RESULT=null;
+    else if(!e.type.equals(a.type)){
+        errors++;
+        errorBuffer.append("\nType mismatch in assignment");
+        RESULT=e;
+    }
+    else if(!e.type.equals("double") && !e.type.equals("i32")){
+        errorBuffer.append("\nCan do multiplications only on integeres and doubles!");
+        errors++;
+        RESULT=e;
     }
     else{
-        if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.MUL,e.type)+" "+e.type+" "+e.getReg()+","+a.immediateValue);
-        else append("\n%"+getId()+"= "+getIrOp(operations.MUL,e.type)+" "+e.type+" "+e.getReg()+","+a.getReg());
+        int id;
+        if(e.immediate){
+            if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.MUL,e.type)+" "+e.type+" "+e.immediateValue+","+a.immediateValue);
+            else append("\n%"+getId()+"= "+getIrOp(operations.MUL,e.type)+" "+e.type+" "+e.immediateValue+","+a.getReg());
+        }
+        else{
+            if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.MUL,e.type)+" "+e.type+" "+e.getReg()+","+a.immediateValue);
+            else append("\n%"+getId()+"= "+getIrOp(operations.MUL,e.type)+" "+e.type+" "+e.getReg()+","+a.getReg());
+        }
+        id=getCurrentId();
+        RESULT=new Attribute(e.type,id);
     }
-    id=getCurrentId();
-    RESULT=new Attribute(e.type,id);
 :} | EXP:e DIV EXP:a {:
-    int id;
-    if(e.immediate){
-        if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.DIV,e.type)+" "+e.type+" "+e.immediateValue+","+a.immediateValue);
-        else append("\n%"+getId()+"= "+getIrOp(operations.DIV,e.type)+" "+e.type+" "+e.immediateValue+","+a.getReg());
+    if(e==null || a==null)  RESULT=null;
+    else if(!e.type.equals(a.type)){
+        errors++;
+        errorBuffer.append("\nType mismatch in assignment");
+        RESULT=e;
+    }
+    else if(!e.type.equals("double") && !e.type.equals("i32")){
+        errorBuffer.append("\nCan do divisions only on integeres and doubles!");
+        errors++;
+        RESULT=e;
     }
     else{
-        if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.DIV,e.type)+" "+e.type+" "+e.getReg()+","+a.immediateValue);
-        else append("\n%"+getId()+"= "+getIrOp(operations.DIV,e.type)+" "+e.type+" "+e.getReg()+","+a.getReg());
+        int id;
+        if(e.immediate){
+            if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.DIV,e.type)+" "+e.type+" "+e.immediateValue+","+a.immediateValue);
+            else append("\n%"+getId()+"= "+getIrOp(operations.DIV,e.type)+" "+e.type+" "+e.immediateValue+","+a.getReg());
+        }
+        else{
+            if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.DIV,e.type)+" "+e.type+" "+e.getReg()+","+a.immediateValue);
+            else append("\n%"+getId()+"= "+getIrOp(operations.DIV,e.type)+" "+e.type+" "+e.getReg()+","+a.getReg());
+        }
+        id=getCurrentId();
+        RESULT=new Attribute(e.type,id);
     }
-    id=getCurrentId();
-    RESULT=new Attribute(e.type,id);
 :} | BO EXP:e BC {:RESULT=e;:}
 | MINUS EXP:e {:
     append("\n%"+getId()+" = sub "+e.type+" 0,"+e.getReg());
@@ -1017,16 +1104,15 @@ ATTR::= PROC:p {:
     RESULT=p;
 :} | ID:i {:
     Value v=getValue(i);
-    String type=v.irDec();
-    String reg=v.getReg();
-    int id;
-    if(v.inClass){
-        append("\n%"+getId()+"= getelementptr inbounds %"+className+",%"+className+"* %self,i32 0,i32 "+v.indexClass);
-        reg="%"+getCurrentId();
+    if(v!=null){   
+        String type=v.irDec();
+        String reg=v.getReg();
+        int id;
+        append("\n%"+getId()+"= load "+type+","+type+"* "+reg);
+        id=getCurrentId();
+        RESULT=new Attribute(type,id,i);
     }
-    append("\n%"+getId()+"= load "+type+","+type+"* "+reg);
-    id=getCurrentId();
-    RESULT=new Attribute(type,id);
+    else RESULT=null;
 :} | VAL:v {:
     RESULT=v;
 :} | IDARR:i {:
@@ -1114,8 +1200,11 @@ OP::= PLUS {:RESULT=operations.ADD;:} | MINUS {:RESULT=operations.SUB;:} | MUL {
 
 STMS::= STMS STM | STM;
 
-STM::=ASS | PROC | DEC | FUNCTION | IFCOMPLETEBLOCK | WHILECOND | FORCOND | CLASSDEF | RET
-| BREAK {:
+STM::=DEC | FUNCTION;
+
+CONDSTMS::= CONDSTMS CONDSTM | ;
+
+CONDSTM::= ASS | PROC | DEC | BREAK {:
     if(inConditional){
         append("\nbr label %for.exit."+forloops.get(forloops.size()-1));
         getId();
@@ -1136,7 +1225,7 @@ STM::=ASS | PROC | DEC | FUNCTION | IFCOMPLETEBLOCK | WHILECOND | FORCOND | CLAS
 PROC::= ID:name {:
     callingFunction.add(name);
     callingFunctionPar.add(0);
-:} BO CPARlist:l BC {:
+:} BO CPAREList:l BC {:
     Function f=functions.get(name);
     int id=0;
     if(f.retType.equals("void"))    append("\ncall "+f.irDec()+"("+l.stream().map(e->e.type+" "+e.getReg()).collect(Collectors.joining(","))+")");
@@ -1150,26 +1239,7 @@ PROC::= ID:name {:
 :} | PRINT BO PRINTPARList:l BC{:
         l.forEach(p->append("\n%"+getId()+" = call i32 (i8*, ...) @printf(i8* %"+p+")"));
         append("\n%"+getId()+" = call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8], [2 x i8]* @.str.newline, i32 0, i32 0))");
-:} | ID:a DOT ID:cproc {:
-    Value v=getValue(a);
-    if(v.classType.functions.containsKey(cproc)){
-        callingFunction.add(cproc);
-        callingFunctionPar.add(0);
-    }
-    System.out.println("\tStartring to read function call that is part of class");
-:} BO CPARlist:l BC {:
-    Value v=getValue(a);
-    Function f=v.classType.functions.get(cproc);
-    int id=0;
-    if(f.retType.equals("void"))    append("\ncall "+f.irDec()+"("+l.stream().map(e->e.type+" "+e.getReg()).collect(Collectors.joining(","))+","+v.irDec()+" "+v.getReg()+")");
-    else{
-        append("\n%"+(getId())+"=call "+f.irDec()+"("+l.stream().map(e->e.type+" "+e.getReg()).collect(Collectors.joining(","))+","+v.irDec()+" "+v.getReg()+")");
-        id=getCurrentId();
-    }
-    callingFunctionPar.remove(callingFunctionPar.size()-1);
-    callingFunction.remove(callingFunction.size()-1);
-    RESULT=new Attribute(f.retType,id);
-:};
+:} ;
 
 PRINTPARList::= PRINTPARList:l C STR:s {:
     l.add(s.regId);
@@ -1178,6 +1248,12 @@ PRINTPARList::= PRINTPARList:l C STR:s {:
     ArrayList<Integer> pointers=new ArrayList<Integer>();
     pointers.add(s.regId);
     RESULT=pointers;
+:};
+
+CPAREList::= CPARlist:l {:RESULT=l;:} | {:
+    ArrayList<Attribute> l=new ArrayList<Attribute>();
+    System.out.println("REduced EMPTY in cparElist");
+    RESULT=l;
 :};
 
 CPARlist::= CPARlist:l C CPAR:p {:
@@ -1197,12 +1273,8 @@ CPARlist::= CPARlist:l C CPAR:p {:
         }
     }
     RESULT=l;
-:} | {:
-    ArrayList<Attribute> l=new ArrayList<Attribute>();
-    System.out.println("REduced EMPTY in cparlist");
-    RESULT=l;
 :} | CPAR:p{:
-ArrayList<Attribute> l=new ArrayList<Attribute>();
+    ArrayList<Attribute> l=new ArrayList<Attribute>();
     System.out.println("REduced cpar in cparlist");
     l.add(p);
     if(p.arrVar){
@@ -1231,7 +1303,7 @@ IFCOMPLETEBLOCK::= IFCC:ifc {:
 :} | IFCC:ifc ELSE {:
     append("\nif.elif."+ifc.type+"."+ifc.regId+":");
     scopes.add(new Scope());
-:} GO STMS GC {:
+:} GO CONDSTMS GC {:
     append("\nbr label %if.exit."+ifc.type+".0");
     append("\nif.exit."+ifc.type+".0:");
     scopes.remove(scopes.size()-1);
@@ -1243,14 +1315,14 @@ IFCC::= IFCC:ifc ELIF {:
     append("\nbr i1 "+cond.getReg()+", label %if.body."+ifc.type+"."+ifc.regId+", label %if.elif."+ifc.type+"."+(ifc.regId+1));
     append("\nif.body."+ifc.type+"."+ifc.regId+":");
     scopes.add(new Scope());
-:} GO STMS GC {:
+:} GO CONDSTMS GC {:
     append("\nbr label %if.exit."+ifc.type+".0");
     ifc.setReg(ifc.regId+1);
     scopes.remove(scopes.size()-1);
     RESULT=ifc;
 :} | IFCOND:ifc {:RESULT=ifc;:};
 
-IFCOND::= IFCONDDEC:ifNum GO STMS GC {:
+IFCOND::= IFCONDDEC:ifNum GO CONDSTMS GC {:
     append("\nbr label %if.exit."+ifNum+".0");
     scopes.remove(scopes.size()-1);
     RESULT=new Attribute(""+ifNum,0);
@@ -1271,7 +1343,7 @@ WHILECOND::= WHILEDEF:wh COND:cond {:
     scopes.add(new Scope());
     if(!inConditional)  inConditional=true;
     forloops.add(wh);
-:} GO STMS GC {:
+:} GO CONDSTMS GC {:
     append("\nbr label %for.inc."+wh);
     append("\nfor.inc."+wh+":");
     append("\n%"+getId()+" = add nsw i32 0,0");
@@ -1312,7 +1384,7 @@ FORCOND::= FOR ID:index IN INTVAL:start DOT DOT DOT INTVAL:finish {:
     if(!inConditional)  inConditional=true;
     forloops.add(currFor);
     RESULT=currFor;
-:} GO STMS GC {:
+:} GO CONDSTMS GC {:
     System.out.println("FInished the for loop, now scopes has size "+scopes.size());
     append("\nbr label %for.inc."+RESULT);
     append("\nfor.inc."+RESULT+":");
@@ -1325,8 +1397,8 @@ FORCOND::= FOR ID:index IN INTVAL:start DOT DOT DOT INTVAL:finish {:
     scopes.remove(scopes.size()-1);
     if(forloops.size()==1) inConditional=false;
     forloops.remove(forloops.size()-1);
-:} | FOR ID IN INTVAL DOT DOT LESS INTVAL GO STMS GC | FOR ID IN ID DOT DOT DOT ID GO STMS GC | FOR ID IN ID DOT DOT LESS ID GO STMS GC | 
-FOR ID IN ID DOT DOT DOT INTVAL GO STMS GC | FOR ID IN ID DOT DOT LESS INTVAL GO STMS GC | FOR ID IN INTVAL DOT DOT DOT ID GO STMS GC | FOR ID IN INTVAL DOT DOT LESS ID GO STMS GC | FOR ID IN STRINGVAL GO STMS GC;
+:} | FOR ID IN INTVAL DOT DOT LESS INTVAL GO CONDSTMS GC | FOR ID IN ID DOT DOT DOT ID GO CONDSTMS GC | FOR ID IN ID DOT DOT LESS ID GO CONDSTMS GC | 
+FOR ID IN ID DOT DOT DOT INTVAL GO CONDSTMS GC | FOR ID IN ID DOT DOT LESS INTVAL GO CONDSTMS GC | FOR ID IN INTVAL DOT DOT DOT ID GO CONDSTMS GC | FOR ID IN INTVAL DOT DOT LESS ID GO CONDSTMS GC | FOR ID IN STRINGVAL GO CONDSTMS GC;
 
 
 COND::= COND:a AND COND:b {:
@@ -1381,30 +1453,15 @@ FUNCDef::=FUNC ID:name {:
     functionName=name;
     System.out.println("Function "+name+" found!");
     Function f=new Function(name);
-    if(inClass) classes.get(className).functions.put(name,f);
     functions.put(name,f);
 :} BO PARlist:l BC RETVAL:r{:
-    Function f;
-    String nameFunc;
-    if(inClass){
-        f=classes.get(className).functions.get(name);
-        nameFunc=className+"."+name;
-        Value v=new Value(classes.get(className));
-        v.setInout(true);
-        System.out.println("\tType of self is : " +v.irDec());
-        Parameter p=new Parameter(v,"self");
-        l.add(p);
-    }
-    else{
-        f=functions.get(name);
-        nameFunc=name;
-    }
-    outputBuffer.append("\ndefine "+r+" @"+nameFunc+" ("+l.stream().map(e->e.type.irDec()+" %"+e.name).collect(Collectors.joining(","))+")");
+    Function f=functions.get(name);
+    outputBuffer.append("\ndefine "+r+" @"+name+" ("+l.stream().map(e->e.type.irDec()+" %"+e.name).collect(Collectors.joining(","))+")");
     f.setPars(l);
     f.setRet(r);
     f.scope=new Scope();
     scopes.add(f.scope);
-    l.stream().filter(e->!e.arrDim && !e.name.equals("self")).forEach(e->{
+    l.stream().filter(e->!e.arrDim).forEach(e->{
         System.out.println("Starting parameter "+e.name);
         if(!e.type.inoutNeedsDeref()){
             f.functionOutput.append("\n%"+(++f.regId)+" = alloca "+e.type.irDec());
@@ -1475,12 +1532,12 @@ FTYPE::= COL INOUTF:i TList:t {:t.setInout(i);RESULT=t;:};
 
 INOUTF::=INOUT {:RESULT=true;:} | {:RESULT=false;:};
 
-FSTMTS::= FSTMTS STM | STM;
+FSTMTS::= FSTMTS FSTM | ;
+
+FSTM::=IFCOMPLETEBLOCK | WHILECOND | FORCOND | ASS | PROC | DEC | RET ;
 
 RET::= RETURN EXP:e {:
-    Function f;
-    if(inClass) f=classes.get(className).functions.get(functionName);
-    else    f=functions.get(functionName);
+    Function f=functions.get(functionName);
     if(f.retType.equals(e.type)){
         f.functionOutput.append("\nret "+e.type+" "+e.getReg());
         f.returned=true;
@@ -1488,9 +1545,7 @@ RET::= RETURN EXP:e {:
     }
     else System.out.println("Returning a type that doesn't match with the return type of the function");
 :} | RETURN {:
-    Function f;
-    if(inClass) f=classes.get(className).functions.get(functionName);
-    else    f=functions.get(functionName);
+    Function f=functions.get(functionName);
     if(!f.retType.equals("void")) System.out.println("REturning nothing from a non void function");
     else{
         f.functionOutput.append("\nret void");
@@ -1498,16 +1553,3 @@ RET::= RETURN EXP:e {:
         getId();
     }
 :};
-
-CLASSDEF::= CLASS ID:name {:
-    ClassType ct=new ClassType(name);
-    classes.put(name,ct);
-    inClass=true;
-    className=name;
-:} GO STMS GC {:
-    ClassType ct=classes.get(name);
-    inClass=false;
-    className=null;
-    globalBuffer.append("\n%"+name+"= type {"+ct.typeDef.toString()+"}");
-    outputBuffer.append("\n"+ct.constructor.toString()+"\nret void\n}");
-:} ;

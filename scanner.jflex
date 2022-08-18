@@ -39,7 +39,6 @@ ws = [ \t]
 <STRINGINTERPOLATION> {stringInterpolationEnd} { yybegin(YYINITIAL);return symbol(sym.STRINGVALE,yytext().substring(1,yytext().length()-1).replace("\n","\\"+"0A")); }
 "print" { return symbol(sym.PRINT); }
 "inout" { return symbol(sym.INOUT); }
-"class" { return symbol(sym.CLASS); }
 "String" { return symbol(sym.STRING); }
 "Double" { return symbol(sym.DOUBLE); }
 "Int" { return symbol(sym.INT); }
