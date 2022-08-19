@@ -345,6 +345,8 @@ parser code {:
     public StringBuffer outputBuffer=new StringBuffer();
     public StringBuffer errorBuffer=new StringBuffer();
     public StringBuffer globalBuffer=new StringBuffer();
+    public StringBuffer globalInitializations=new StringBuffer();
+    public int globalInitializationsId=0;
     public int errors=0;
     public HashMap<String,Function> functions=new HashMap<String,Function>();
     public int regid=0;
@@ -359,15 +361,24 @@ parser code {:
     public ArrayList<Integer> forloops=new ArrayList<Integer>();
     public void append(String x){
         if(inFunction)  functions.get(functionName).functionOutput.append(x);
-        else    errorBuffer.append("\nCannot execute instructions outside of a function");
+        else{
+            errorBuffer.append("\nCannot execute instructions outside of a function");
+            errors++;
+        }
     }
     public int getId(){
         if(inFunction)  return ++functions.get(functionName).regId;
-        else return -1;
+        else{
+            errors++;
+            return -1;
+        }
     }
     public int getCurrentId(){
         if(inFunction)  return functions.get(functionName).regId;
-        else return -1;
+        else{
+            errors++;
+            return -1;
+        }
     }
     public String getIrOp(operations op,String type){
         boolean integer=type.equals("i32");
@@ -390,16 +401,7 @@ parser code {:
         }
         else return "NOT SUPPORTED";
     }
-    public String getVarIrDec(String var){
-        System.out.println("Inside getvarirdec with: "+var+" and infunction? "+inFunction);
-        for(int i=scopes.size()-1;i>=0;i--){
-            Scope scope=scopes.get(i);
-            if(scope.variables.containsKey(var)) return scope.variables.get(var).irDec();
-            else if(scope.constants.containsKey(var)) return scope.constants.get(var).irDec();
-        }
-        return "ERROR";
-    }
-    public Value getValue(String var){
+    public Value getValueV(String var){
         System.out.println("Inside getvalueee with: "+var+" and infunction? "+inFunction);
         for(int i=scopes.size()-1;i>=0;i--){
             Scope scope=scopes.get(i);
@@ -407,39 +409,45 @@ parser code {:
                 System.out.println("FOund the variale in the "+i+" scope as a var");
                 return scope.variables.get(var);
             }
-            else if(scope.constants.containsKey(var)){
-                System.out.println("FOund the variale in the "+i+" scope as a let");
-                return scope.constants.get(var);
-            }
         }
         System.out.println("\tError couldn't find the variable "+var+", right now scope has size:"+scopes.size()+"and here are they now:");
         for(int i=scopes.size()-1;i>=0;i--){
             Scope scope=scopes.get(i);
             System.out.println("vars:"+scope.variables);
-            System.out.println("lets:"+scope.constants);
         }
         return null;
     }
-    public String getRegVar(String var){
+    public Value getValueC(String var){
+        System.out.println("Inside getvalueeeC with: "+var+" and infunction? "+inFunction);
         for(int i=scopes.size()-1;i>=0;i--){
             Scope scope=scopes.get(i);
-            if(scope.variables.containsKey(var)) return scope.variables.get(var).getReg();
-            else if(scope.constants.containsKey(var)) return scope.constants.get(var).getReg();
+            if(scope.constants.containsKey(var)){
+                System.out.println("FOund the constant in the "+i+" scope as a let");
+                return scope.constants.get(var);
+            }
         }
-        System.out.println("\tError couldn't find the variable "+var+", right now scope has size:"+scopes.size()+"and here are they now:");
+        System.out.println("\tError couldn't find the constant "+var+", right now scope has size:"+scopes.size()+"and here are they now:");
         for(int i=scopes.size()-1;i>=0;i--){
             Scope scope=scopes.get(i);
-            System.out.println("vars:"+scope.variables);
             System.out.println("lets:"+scope.constants);
         }
-        return "ERROR";
+        return null;
     }
     public void storeRow(int i,ArrayDec a){
         Function f=functions.get(functionName);
         if(a.last){
             for(int j=0;j<a.value.size();j++){
                 f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds "+a.type+","+a.type+"* %"+i+",i32 0,i32 "+j);
-                f.functionOutput.append("\nstore "+a.value.get(j).type+" "+a.value.get(j).getReg()+","+a.value.get(j).type+"* %"+f.regId);
+                if(a.value.get(j).type.equals("i8*")){
+                    int id=f.regId;
+                    f.functionOutput.append("\n%"+(++f.regId)+" = alloca [200 x i8]");
+                    int idStr=f.regId;
+                    f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds [200 x i8],[200 x i8]* %"+idStr+",i32 0,i32 0");
+                    int strPoint=f.regId;
+                    f.functionOutput.append("\n%"+(++f.regId)+" = call i8* (i8*,i8*) @strcpy(i8* %"+strPoint+",i8* "+a.value.get(j).getReg()+")");
+                    f.functionOutput.append("\nstore i8* %"+strPoint+",i8** %"+id);
+                }
+                else    f.functionOutput.append("\nstore "+a.value.get(j).type+" "+a.value.get(j).getReg()+","+a.value.get(j).type+"* %"+f.regId);
             }
             return;
         }
@@ -447,6 +455,50 @@ parser code {:
             for(int j=0;j<a.arraysInside.size();j++){
                 f.functionOutput.append("\n%"+(++f.regId)+" = getelementptr inbounds "+a.type+","+a.type+"* %"+i+",i32 0,i32 "+j);
                 storeRow(f.regId,a.arraysInside.get(j));
+            }
+        }
+    }
+    public void storeGlobalRowStringsR(int i,ArrayDec a){
+        if(a.last){
+            Random rand=new Random();
+            for(int j=0;j<a.value.size();j++){
+                globalInitializations.append("\n%"+(++globalInitializationsId)+" = getelementptr inbounds "+a.type+","+a.type+"* %"+i+",i32 0,i32 "+j);
+                int id=globalInitializationsId;
+                String idStr="support"+globalInitializationsId+"rand"+rand.nextInt(999);
+                globalBuffer.append("\n@"+idStr+" = global [200 x i8] zeroinitializer");
+                globalInitializations.append("\n%"+(++globalInitializationsId)+" = getelementptr inbounds [200 x i8],[200 x i8]* @"+idStr+",i32 0,i32 0");
+                int strPoint=globalInitializationsId;
+                globalInitializations.append("\n%"+(++globalInitializationsId)+" = call i8* (i8*,i8*) @strcpy(i8* %"+strPoint+",i8* %"+a.value.get(j).regId+")");
+                globalInitializations.append("\nstore i8* %"+strPoint+",i8** %"+id);
+            }
+            return;
+        }
+        else{
+            for(int j=0;j<a.arraysInside.size();j++){
+                globalInitializations.append("\n%"+(++globalInitializationsId)+" = getelementptr inbounds "+a.type+","+a.type+"* %"+i+",i32 0,i32 "+j);
+                storeGlobalRowStringsR(globalInitializationsId,a.arraysInside.get(j));
+            }
+        }
+    }
+    public void storeGlobalRowStrings(String i,ArrayDec a){
+        if(a.last){
+            Random rand=new Random();
+            for(int j=0;j<a.value.size();j++){
+                globalInitializations.append("\n%"+(++globalInitializationsId)+" = getelementptr inbounds "+a.type+","+a.type+"* @"+i+",i32 0,i32 "+j);
+                int id=globalInitializationsId;
+                String idStr="support"+globalInitializationsId+"rand"+rand.nextInt(999);
+                globalBuffer.append("\n@"+idStr+" = global [200 x i8] zeroinitializer");
+                globalInitializations.append("\n%"+(++globalInitializationsId)+" = getelementptr inbounds [200 x i8],[200 x i8]* @"+idStr+",i32 0,i32 0");
+                int strPoint=globalInitializationsId;
+                globalInitializations.append("\n%"+(++globalInitializationsId)+" = call i8* (i8*,i8*) @strcpy(i8* %"+strPoint+",i8* %"+a.value.get(j).regId+")");
+                globalInitializations.append("\nstore i8* %"+strPoint+",i8** %"+id);
+            }
+            return;
+        }
+        else{
+            for(int j=0;j<a.arraysInside.size();j++){
+                globalInitializations.append("\n%"+(++globalInitializationsId)+" = getelementptr inbounds "+a.type+","+a.type+"* @"+i+",i32 0,i32 "+j);
+                storeGlobalRowStringsR(globalInitializationsId,a.arraysInside.get(j));
             }
         }
     }
@@ -522,10 +574,9 @@ non terminal Boolean INOUTF;
 non terminal Attribute STR;
 non terminal Integer STRINGVALINTERP;
 non terminal Function FUNCDef;
-non terminal ArrayList<Integer> PRINTPARList;
 non terminal Attribute  IDARR;
 non terminal ArrayDec ARRVALE,ARRVAL;
-non terminal ArrayList<Attribute> EXPL;
+non terminal ArrayList<Attribute> EXPL,HEXPL;
 non terminal Integer IFCONDDEC;
 non terminal Attribute IFCC,IFCOND;
 non terminal IFCOMPLETEBLOCK;
@@ -541,7 +592,8 @@ precedence left uminus;
 start with PROG;
 
 PROG::= {:scopes.add(globalScope);:} STMS {:
-    if(errors==0)   System.out.println(globalBuffer+"\n"+outputBuffer+"\n");
+    if(errors==0)   System.out.println(";DEPENDENCY DECLARATIONS\ndeclare i32 @printf(i8*, ...)\ndeclare i32 @sprintf(i8*,i8*, ...)\ndeclare i8* @strcat(i8*,i8*)\ndeclare i8* @strcpy(i8*,i8*)\n@.str.newline = constant [2 x i8] c\"\\0A\\00\"\n@.str.int = constant [3 x i8] c\"%d\\00\"\n@.str.double = constant [4 x i8] c\"%lf\\00\"\n@.str.space = constant [2 x i8] c\" \\00\"\n;GLOBAL DECLARATIONS\n"
++globalBuffer+"\n;GLOBAL INITIALIZATIONS OF GLOBAL VARIABLES THAT ARE STRINGS OR ARRAYS OF STRINGS\ndefine void @globalinit(){"+globalInitializations+"\nret void\n}\n"+outputBuffer+"\n");
     else System.out.println("There were "+errors+"errors, here there are:\n"+ errorBuffer);
 :} ;
 
@@ -553,15 +605,28 @@ l.forEach(a->{
         if(t.initialized){
             if(t.array){
                 ArrayDec dec=(ArrayDec) t.immediateInitialization;
-                if(dec.allImmediates) globalBuffer.append("\n@"+a+" = global "+dec.type+" "+dec.printValue());
-                else errorBuffer.append("\nCannot initialize a global variable that doesn't have static values");
+                String base=dec.getBaseType();
+                if(dec.allImmediates){
+                    if(base.equals("double") || base.equals("i32")) globalBuffer.append("\n@"+a+" = global "+dec.type+" "+dec.printValue());
+                    else{
+                        globalBuffer.append("\n@"+a+" = global "+dec.type+" zeroinitializer");
+                        storeGlobalRowStrings(a,dec);
+                    }
+                }
+                else{
+                    errorBuffer.append("\nCannot initialize a global variable that doesn't have static values");
+                    errors++;
+                }
             }
             else{
                 Attribute att=(Attribute) t.immediateInitialization;
-                if(att.immediate)   globalBuffer.append("\n@"+a+"= global "+t.irDec()+" "+att.getReg()+",align 4");
+                if(att.type.equals("double") || att.type.equals("i32")) globalBuffer.append("\n@"+a+"= global "+t.irDec()+" "+att.getReg()+",align 4");
                 else{
-                    errorBuffer.append("\ncannot declare and initialize a global variable with a dynamic value");
-                    errors++;
+                    globalBuffer.append("\n@"+a+".arr = global [200 x i8] zeroinitializer");
+                    globalBuffer.append("\n@"+a+" = global i8* getelementptr inbounds([200 x i8],[200 x i8]* @"+a+".arr,i32 0,i32 0)");
+                    globalInitializations.append("\n%"+(++globalInitializationsId)+"= load i8*,i8** @"+a);
+                    int strptr=globalInitializationsId;
+                    globalInitializations.append("\n%"+(++globalInitializationsId)+" = call i8* (i8*,i8*) @strcpy(i8* %"+strptr+",i8* %"+att.regId+")");
                 }
             }
         }
@@ -581,7 +646,16 @@ l.forEach(a->{
             }
             else{
                 Attribute att=(Attribute) t.immediateInitialization;
-                append("\nstore "+t.irDec()+" "+att.getReg()+","+t.irDec()+"* %"+id);
+                if(att.type.equals("i8*")){
+                    int idStr,strPoint;
+                    append("\n%"+getId()+"= alloca [200 x i8]");
+                    idStr=getCurrentId();
+                    append("\n%"+getId()+"= getelementptr inbounds [200 x i8],[200 x i8]* %"+idStr+",i32 0,i32 0");
+                    strPoint=getCurrentId();
+                    append("\n%"+getId()+"= call i8* (i8*,i8*) @strcpy(i8* %"+strPoint+",i8* "+att.getReg()+")");
+                    append("\nstore i8* %"+strPoint+",i8** %"+id);
+                }
+                else    append("\nstore "+t.irDec()+" "+att.getReg()+","+t.irDec()+"* %"+id);
             }
         }
         Value v=new Value(t);
@@ -594,12 +668,29 @@ l.forEach(a->{
         if(t.initialized){
             if(t.array){
                 ArrayDec dec=(ArrayDec) t.immediateInitialization;
-                if(dec.allImmediates) globalBuffer.append("\n@"+a+" = global "+dec.type+" "+dec.printValue());
-                else errorBuffer.append("\nCannot initialize a global variable that doesn't have static values");
+                String base=dec.getBaseType();
+                if(dec.allImmediates){
+                    if(base.equals("double") || base.equals("i32")) globalBuffer.append("\n@"+a+" = global "+dec.type+" "+dec.printValue());
+                    else{
+                        globalBuffer.append("\n@"+a+" = global "+dec.type+" zeroinitializer");
+                        storeGlobalRowStrings(a,dec);
+                    }
+                }
+                else{
+                    errorBuffer.append("\nCannot initialize a global variable that doesn't have static values");
+                    errors++;
+                }
             }
             else{
                 Attribute att=(Attribute) t.immediateInitialization;
-                globalBuffer.append("\n@"+a+"= global "+t.irDec()+" "+att.getReg()+",align 4");
+                if(att.type.equals("double") || att.type.equals("i32")) globalBuffer.append("\n@"+a+"= global "+t.irDec()+" "+att.getReg()+",align 4");
+                else{
+                    globalBuffer.append("\n@"+a+".arr = global [200 x i8] zeroinitializer");
+                    globalBuffer.append("\n@"+a+" = global i8* getelementptr inbounds([200 x i8],[200 x i8]* @"+a+".arr,i32 0,i32 0)");
+                    globalInitializations.append("\n%"+(++globalInitializationsId)+" load i8*,i8** @"+a);
+                    int strptr=globalInitializationsId;
+                    globalInitializations.append("\n%"+(++globalInitializationsId)+" = call i8* (i8*,i8*) @strcpy(i8* %"+strptr+",i8* %"+att.regId+")");
+                }
             }
         }
         else globalBuffer.append("\n@"+a+" = global "+t.irDec()+" zeroinitializer");
@@ -618,7 +709,16 @@ l.forEach(a->{
             }
             else{
                 Attribute att=(Attribute) t.immediateInitialization;
-                append("\nstore "+t.irDec()+" "+att.getReg()+","+t.irDec()+"* %"+id);
+                if(att.type.equals("i8*")){
+                    int idStr,strPoint;
+                    append("\n%"+getId()+"= alloca [200 x i8]");
+                    idStr=getCurrentId();
+                    append("\n%"+getId()+"= getelementptr inbounds [200 x i8],[200 x i8]* %"+idStr+",i32 0,i32 0");
+                    strPoint=getCurrentId();
+                    append("\n%"+getId()+"= call i8* (i8*,i8*) @strcpy(i8* %"+strPoint+",i8* "+att.getReg()+")");
+                    append("\nstore i8* %"+strPoint+",i8** %"+id);
+                }
+                else    append("\nstore "+t.irDec()+" "+att.getReg()+","+t.irDec()+"* %"+id);
             }
         }
         Value v=new Value(t);
@@ -715,10 +815,15 @@ STR::= STRINGVAL:s {:
     globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(s.length()+1)+" x i8] c\""+s+"\\00\"");
     int id;
     if(inFunction){
-        append("\n%"+getId()+" = getelementptr inbounds ["+s.length()+" x i8], ["+s.length()+" x i8]* @.str."+stringIndex+" , i32 0, i32 0");
+        append("\n%"+getId()+" = getelementptr inbounds ["+(s.length()+1)+" x i8], ["+(s.length()+1)+" x i8]* @.str."+stringIndex+" , i32 0, i32 0");
         RESULT=new Attribute("i8*",getCurrentId());
     }
-    else    RESULT=new Attribute("getelementptr inbounds (["+s.length()+" x i8], ["+s.length()+" x i8]* @.str."+stringIndex+" , i32 0, i32 0)","["+(s.length()+1)+" x i8]");
+    else{
+        globalInitializations.append("\n%"+(++globalInitializationsId)+" = getelementptr inbounds ["+(s.length()+1)+" x i8], ["+(s.length()+1)+" x i8]* @.str."+stringIndex+" , i32 0, i32 0");
+        Attribute att=new Attribute("i8*",globalInitializationsId);
+        att.immediate=true;
+        RESULT=att;
+    }
 :}| STRINGVALS:s STRINGVALINTERP:i STRINGVALE:e{:
     globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(s.length()+1)+" x i8] c\""+s+"\\00\"");
     globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(e.length()+1)+" x i8] c\""+e+"\\00\"");
@@ -743,7 +848,16 @@ STRINGVALINTERP::= STRINGVALINTERP:i STRINGVALI:s EXP:e {:
     expPointer=getCurrentId();
     append("\n%"+getId()+" = getelementptr inbounds [20 x i8], [20 x i8]* %"+expPointer+" , i32 0, i32 0");
     expGep=getCurrentId();
-    append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+expGep+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 "+e.getReg()+")");
+    if(e!=null){
+        if(e.type.equals("i32"))   append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+expGep+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 "+e.getReg()+")");
+        else if(e.type.equals("double"))   append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+expGep+",i8* getelementptr inbounds([4 x i8], [4 x i8]* @.str.double, i32 0, i32 0), double "+e.getReg()+")");
+        else{
+            errors++;
+            errorBuffer.append("\nString interpolation is allowed only with expressions that are either doubles or integers");
+            append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+expGep+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 -1)");
+        }
+    }
+    else    append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+expGep+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 -1)");
     append("\n%"+getId()+" = getelementptr inbounds [200 x i8],[200 x i8]* %"+finalArrPointer+",i32 0,i32 0");
     finalGepPointer=getCurrentId();
     append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+finalGepPointer+",i8* %"+i+")");
@@ -757,7 +871,16 @@ STRINGVALINTERP::= STRINGVALINTERP:i STRINGVALI:s EXP:e {:
     stringArrPointer=getCurrentId();
     append("\n%"+getId()+" = getelementptr inbounds [20 x i8], [20 x i8]* %"+stringArrPointer+" , i32 0, i32 0");
     stringGepPointer=getCurrentId();
-    append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 "+e.getReg()+")");
+    if(e!=null){
+        if(e.type.equals("i32"))   append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 "+e.getReg()+")");
+        else if(e.type.equals("double"))   append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([4 x i8], [4 x i8]* @.str.double, i32 0, i32 0), double "+e.getReg()+")");
+        else{
+            errors++;
+            errorBuffer.append("\nString interpolation is allowed only with expressions that are either doubles or integers");
+            append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 -1)");
+        }
+    }
+    else    append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 -1)");
     RESULT=stringGepPointer;
 :};
 
@@ -790,16 +913,30 @@ ARRVAL::= QO EXPL:l QC {:
     RESULT=new ArrayDec("["+l.size()+" x "+l.get(0).type+"]",l,true,allImmediates);
 :};
 
+HEXPL::= HEXPL:l C EXP:e {:
+    if(e!=null) l.add(e);
+    RESULT=l;
+:} | EXP:e {:
+    ArrayList<Attribute> l=new ArrayList<Attribute>();
+    if(e!=null) l.add(e);
+    RESULT=l;
+:} | {:
+    ArrayList<Attribute> l=new ArrayList<Attribute>();
+    RESULT=l;
+:};
+
 EXPL::= EXPL:l C EXP:e {:
-    if(l.get(l.size()-1).type.equals(e.type)) l.add(e);
-    else{
-        errors++;
-        errorBuffer.append("\nCannot have heterogenous arrays");
+    if(e!=null){
+        if(l.get(l.size()-1).type.equals(e.type)) l.add(e);
+        else{
+            errors++;
+            errorBuffer.append("\nCannot have heterogenous arrays");
+        }
     }
     RESULT=l;
 :} | EXP:e {:
     ArrayList<Attribute> l=new ArrayList<Attribute>();
-    l.add(e);
+    if(e!=null) l.add(e);
     RESULT=l;
 :} | ;
 
@@ -813,32 +950,71 @@ T::=STRING {:RESULT=new Value(true);:}| DOUBLE {:RESULT=new Value(false);:}| INT
 //assignment
 
 ASS::= ID:a EQ EXP:e {:
-    Value v=getValue(a);
-    if(a==null || e==null)  return null;
+    Boolean ok=true;
+    Value v=getValueC(a);
+    if(v!=null){
+        if(v.initialized){
+            errorBuffer.append("\nConstant "+a+" has already been assigned");
+            errors++;
+            ok=false;
+            RESULT=null;
+        }
+    }
+    else    v=getValueV(a);
+    if(v==null || e==null){
+        ok=false;
+        RESULT=null;
+    };
     String type=v.irDec();
     if(!e.type.equals(type)){
         errors++;
         errorBuffer.append("\nType mismatch in assignment");
     }
     //System.out.println("\n\tInside ASSIGNMENT;  with exp: "+e.type+" and id of type: "+type);
-    else    append("\nstore "+type+" "+e.getReg()+","+type+"* "+getRegVar(a));
+    else if(ok){
+        if(e.type.equals("i8*")){
+            append("\n%"+getId()+"= load i8*,i8** "+v.getReg());
+            int idA=getCurrentId();
+            append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idA+",i8* "+e.getReg()+")");
+        }
+        else    append("\nstore "+type+" "+e.getReg()+","+type+"* "+v.getReg());
+    }
 :} | IDARR:a EQ EXP:e {:
-    if(a==null || e==null)  return null;
-    if(!e.type.equals(a.type)){
+    if(a==null || e==null)  RESULT=null;
+    else if(!e.type.equals(a.type)){
         errors++;
         errorBuffer.append("\nType mismatch in assignment");
     }
-    else    append("\nstore "+e.type+" "+e.getReg()+","+a.type+"* "+a.getReg());
+    else{
+        if(e.type.equals("i8*")){
+            append("\n%"+getId()+"= load i8*,i8** "+a.getReg());
+            int idA=getCurrentId();
+            append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idA+",i8* "+e.getReg()+")");
+        }
+        else    append("\nstore "+e.type+" "+e.getReg()+","+e.type+"* "+a.getReg());
+    }
 :} | ID:a OP:op EQ EXP:e {:
-    Value v=getValue(a);
-    if(a==null || e==null)  return null;
-    String type=v.irDec();
-    if(!e.type.equals(type)){
+    Value v=getValueC(a);
+    if(v!=null){
+        errorBuffer.append("\nConstants like "+a+" cannot be used with += -= *= /= operators");
+        errors++;
+        RESULT=null;
+    }
+    else    v=getValueV(a);
+    if(v==null || e==null) RESULT=null;
+    else if(!v.initialized){
+        errorBuffer.append("\nVariable "+a+" hasn't been initialized yet so it cannot be used with += -= *= /= operators");
+        errors++;
+        RESULT=null;
+    }
+    else if(!e.type.equals(v.irDec())){
         errors++;
         errorBuffer.append("\nType mismatch in assignment");
+        RESULT=null;
     }
     //System.out.println("\n\tInside ASSIGNMENT;  with exp: "+e.type+" and id of type: "+type);
     else{
+        String type=v.irDec();
         if(type.equals("i8*")){
             if(op==operations.ADD){
                 append("\n%"+getId()+"= alloca [200 x i8]");
@@ -849,12 +1025,11 @@ ASS::= ID:a EQ EXP:e {:
                 int idA=getCurrentId();
                 append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idPointer+",i8* %"+idA+")");
                 append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+idPointer+",i8* "+e.getReg()+")");
-                append("\nstore i8* %"+idPointer+",i8** "+v.getReg());
+                append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idA+",i8* %"+idPointer+")");
             }
             else errorBuffer.append("\nonly operation allowed on string is the add");
         }
         else{
-            //String type=getVarIrDec(a);
             int id;
             append("\n%"+getId()+"= load "+type+","+type+"* "+v.getReg());
             id=getCurrentId();
@@ -893,90 +1068,108 @@ CPAR::= ID:name COL EXP:e {:
     }
     RESULT=e;
 :} | ID:i {:
-    Value v=getValue(i);
-    if(v.array){
-        if(v.funcPar){
-            append("\n%"+getId()+" = load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
-            RESULT=new Attribute(v.getBaseType(),i,getCurrentId(),v.dimensionsParameters);
-        }
-        else{
-            String type=v.irDec();
-            int lastId=-1;
-            ArrayList<Integer> subdim=new ArrayList<Integer>();
-            for(int j=0;j<v.dimensions.size();j++){
-                String newType,subir;
-                if(j>0){
-                    append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* %"+lastId+",i32 0,i32 0");
-                    subir=type.substring(1,type.length()-1);
-                    if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
-                    else newType=subir.substring(subir.indexOf("["),subir.length());
-                    type=newType;
-                    lastId=getCurrentId();
-                }
-                else{
-                    append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* "+v.getReg()+",i32 0,i32 0");
-                    subir=type.substring(1,type.length()-1);
-                    if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
-                    else newType=subir.substring(subir.indexOf("["),subir.length());
-                    type=newType;
-                    lastId=getCurrentId();
-                    subdim.add(v.dimensions.get(j));
-                }
-            }
-            if(subdim.size()>0) RESULT=new Attribute(type,i,subdim,lastId);
-            else RESULT=new Attribute(type,lastId,i);
-        }
-    }
-    else if(v.str){
-        append("\n%"+getId()+"= getelementptr "+v.irDec()+","+v.irDec()+"* "+v.getReg()+",i32 0,i32 0");
-        RESULT=new Attribute(v.irDec(),getCurrentId(),i);
+    Value v=getValueC(i);
+    if(v==null) v=getValueV(i);
+    if(v==null) RESULT=null;
+    else if(!v.initialized){
+        errors++;
+        errorBuffer.append("\nValue "+i+" hasn't already been initialized before this function call");
+        RESULT=null;
     }
     else{
-        append("\n%"+getId()+"= load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
-        RESULT=new Attribute(v.irDec(),getCurrentId(),i);
+        if(v.array){
+            if(v.funcPar){
+                append("\n%"+getId()+" = load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
+                RESULT=new Attribute(v.getBaseType(),i,getCurrentId(),v.dimensionsParameters);
+            }
+            else{
+                String type=v.irDec();
+                int lastId=-1;
+                ArrayList<Integer> subdim=new ArrayList<Integer>();
+                for(int j=0;j<v.dimensions.size();j++){
+                    String newType,subir;
+                    if(j>0){
+                        append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* %"+lastId+",i32 0,i32 0");
+                        subir=type.substring(1,type.length()-1);
+                        if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
+                        else newType=subir.substring(subir.indexOf("["),subir.length());
+                        type=newType;
+                        lastId=getCurrentId();
+                    }
+                    else{
+                        append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* "+v.getReg()+",i32 0,i32 0");
+                        subir=type.substring(1,type.length()-1);
+                        if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
+                        else newType=subir.substring(subir.indexOf("["),subir.length());
+                        type=newType;
+                        lastId=getCurrentId();
+                        subdim.add(v.dimensions.get(j));
+                    }
+                }
+                if(subdim.size()>0) RESULT=new Attribute(type,i,subdim,lastId);
+                else RESULT=new Attribute(type,lastId,i);
+            }
+        }
+        else if(v.str){
+            append("\n%"+getId()+"= getelementptr "+v.irDec()+","+v.irDec()+"* "+v.getReg()+",i32 0,i32 0");
+            RESULT=new Attribute(v.irDec(),getCurrentId(),i);
+        }
+        else{
+            append("\n%"+getId()+"= load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
+            RESULT=new Attribute(v.irDec(),getCurrentId(),i);
+        }
     }
 :} | ID:name COL ID:i {:
-    Value v=getValue(i);
-    if(v.array){
-        if(v.funcPar){
-            append("\n%"+getId()+" = load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
-            RESULT=new Attribute(v.getBaseType(),i,getCurrentId(),v.dimensionsParameters);
-        }
-        else{
-            String type=v.irDec();
-            int lastId=-1;
-            ArrayList<Integer> subdim=new ArrayList<Integer>();
-            for(int j=0;j<v.dimensions.size();j++){
-                String newType,subir;
-                if(j>0){
-                    append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* %"+lastId+",i32 0,i32 0");
-                    subir=type.substring(1,type.length()-1);
-                    if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
-                    else newType=subir.substring(subir.indexOf("["),subir.length());
-                    type=newType;
-                    lastId=getCurrentId();
-                }
-                else{
-                    append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* "+v.getReg()+",i32 0,i32 0");
-                    subir=type.substring(1,type.length()-1);
-                    if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
-                    else newType=subir.substring(subir.indexOf("["),subir.length());
-                    type=newType;
-                    lastId=getCurrentId();
-                    subdim.add(v.dimensions.get(j));
-                }
-            }
-            if(subdim.size()>0) RESULT=new Attribute(type,i,subdim,lastId);
-            else RESULT=new Attribute(type,lastId,i);
-        }
-    }
-    else if(v.str){
-        append("\n%"+getId()+"= getelementptr "+v.irDec()+","+v.irDec()+"* "+v.getReg()+",i32 0,i32 0");
-        RESULT=new Attribute(v.irDec(),getCurrentId(),i);
+    Value v=getValueC(i);
+    if(v==null) v=getValueV(i);
+    if(v==null) RESULT=null;
+    else if(!v.initialized){
+        errors++;
+        errorBuffer.append("\nConstant "+i+" hasn't already been initialized before this function call");
+        RESULT=null;
     }
     else{
-        append("\n%"+getId()+"= load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
-        RESULT=new Attribute(v.irDec(),getCurrentId(),i);
+        if(v.array){
+            if(v.funcPar){
+                append("\n%"+getId()+" = load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
+                RESULT=new Attribute(v.getBaseType(),i,getCurrentId(),v.dimensionsParameters);
+            }
+            else{
+                String type=v.irDec();
+                int lastId=-1;
+                ArrayList<Integer> subdim=new ArrayList<Integer>();
+                for(int j=0;j<v.dimensions.size();j++){
+                    String newType,subir;
+                    if(j>0){
+                        append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* %"+lastId+",i32 0,i32 0");
+                        subir=type.substring(1,type.length()-1);
+                        if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
+                        else newType=subir.substring(subir.indexOf("["),subir.length());
+                        type=newType;
+                        lastId=getCurrentId();
+                    }
+                    else{
+                        append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* "+v.getReg()+",i32 0,i32 0");
+                        subir=type.substring(1,type.length()-1);
+                        if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
+                        else newType=subir.substring(subir.indexOf("["),subir.length());
+                        type=newType;
+                        lastId=getCurrentId();
+                        subdim.add(v.dimensions.get(j));
+                    }
+                }
+                if(subdim.size()>0) RESULT=new Attribute(type,i,subdim,lastId);
+                else RESULT=new Attribute(type,lastId,i);
+            }
+        }
+        else if(v.str){
+            append("\n%"+getId()+"= getelementptr "+v.irDec()+","+v.irDec()+"* "+v.getReg()+",i32 0,i32 0");
+            RESULT=new Attribute(v.irDec(),getCurrentId(),i);
+        }
+        else{
+            append("\n%"+getId()+"= load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
+            RESULT=new Attribute(v.irDec(),getCurrentId(),i);
+        }
     }
 :} | IDARR:i | ID:name COL IDARR:i | DEREF IDARR:i | DEREF ID:i | ID:name COL DEREF IDARR:i | ID:name COL DEREF ID:i ;
 
@@ -1005,12 +1198,12 @@ EXP::= EXP:e PLUS EXP:a {:
         }
         else{
             if(e.immediate){
-                if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.immediateValue+","+a.immediateValue);
-                else append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.immediateValue+","+a.getReg());
+                if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.ADD,e.type)+" "+e.type+" "+e.immediateValue+","+a.immediateValue);
+                else append("\n%"+getId()+"= "+getIrOp(operations.ADD,e.type)+" "+e.type+" "+e.immediateValue+","+a.getReg());
             }
             else{
-                if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.getReg()+","+a.immediateValue);
-                else append("\n%"+getId()+"= "+getIrOp(operations.SUB,e.type)+" "+e.type+" "+e.getReg()+","+a.getReg());
+                if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.ADD,e.type)+" "+e.type+" "+e.getReg()+","+a.immediateValue);
+                else append("\n%"+getId()+"= "+getIrOp(operations.ADD,e.type)+" "+e.type+" "+e.getReg()+","+a.getReg());
             }
         }
         id=getCurrentId();
@@ -1103,8 +1296,16 @@ EXP::= EXP:e PLUS EXP:a {:
 ATTR::= PROC:p {:
     RESULT=p;
 :} | ID:i {:
-    Value v=getValue(i);
-    if(v!=null){   
+    Value v=getValueC(i);
+    if(v==null)    v=getValueV(i);
+    if(v==null) RESULT=null;
+    else if(!v.initialized){
+        errors++;
+        errorBuffer.append("\nValue "+i+" hasn't already been initialized before this expression");
+        System.out.println("Value "+i+" hasn't already been initialized before this expression");
+        RESULT=null;
+    }
+    else{
         String type=v.irDec();
         String reg=v.getReg();
         int id;
@@ -1112,7 +1313,6 @@ ATTR::= PROC:p {:
         id=getCurrentId();
         RESULT=new Attribute(type,id,i);
     }
-    else RESULT=null;
 :} | VAL:v {:
     RESULT=v;
 :} | IDARR:i {:
@@ -1141,7 +1341,8 @@ IDARR::= IDARR:i QO EXP:a QC {:
         else{
             append("\n%"+getId()+"= add nsw i32 "+a.getReg()+","+i.getReg());
             int lastId=getCurrentId();
-            Value v=getValue(i.associatedVarName);
+            Value v=getValueC(i.associatedVarName);
+            if(v==null) v=getValueV(i.associatedVarName);
             String baseType=v.getBaseType();
             append("\n%"+getId()+"= load "+i.type+","+i.type+"* "+v.getReg());
             int loadId=getCurrentId();
@@ -1159,38 +1360,56 @@ IDARR::= IDARR:i QO EXP:a QC {:
         RESULT=new Attribute(newType,getCurrentId(),i.associatedVarName);
     }
 :} | ID:i QO EXP:a QC {:
-    Value v=getValue(i);
-    if(v.funcPar && v.dimensions.size()>1){
-        System.out.println("Entered the if");
-        System.out.println("THere are "+v.dimensions+" AND "+v.dimensionsParameters);
-        ArrayList<String> s=new ArrayList<String>();
-        for(int j=0;j<v.dimensionsParameters.size();j++){
-            if(j==0)    append("\n%"+getId()+"= mul i32 %"+v.dimensionsParameters.get(j)+","+a.getReg());
-            else{
-                int oldId=getCurrentId();
-                append("\n%"+getId()+"= mul i32 %"+oldId+",%"+v.dimensionsParameters.get(j));
-                s.add(v.dimensionsParameters.get(j));
-            }
-        }
-        System.out.println("JUst finished the first loop, now dimensions are "+s);
-        RESULT=new Attribute(v.irDec(),i,getCurrentId(),s);
+    Value v=getValueC(i);
+    if(v==null) v=getValueV(i);
+    if(v==null){
+        errorBuffer.append("\nValue "+i+" has not been declared yet");
+        errors++;
+        RESULT=null;
     }
-    else if(v.funcPar && v.dimensions.size()==1){
-        String baseType=v.getBaseType();
-        append("\n%"+getId()+"= load "+baseType+"*,"+baseType+"** "+v.getReg());
-        int loadId=getCurrentId();
-        append("\n%"+getId()+"= getelementptr inbounds "+baseType+","+baseType+"* %"+loadId+", i32 "+a.getReg());
-        RESULT=new Attribute(baseType,getCurrentId(),i);
+    else if(!v.array){
+        errorBuffer.append("\nValue "+i+" is not an array");
+        errors++;
+        RESULT=null;
+    }
+    else if(!v.initialized){
+        errorBuffer.append("\nValue "+i+" has not been initialized yet");
+        errors++;
+        RESULT=null;
     }
     else{
-        String ir=getVarIrDec(i);
-        String reg=getRegVar(i);
-        append("\n%"+getId()+" = getelementptr inbounds "+ir+","+ir+"* "+reg+", i32 0, i32 "+a.getReg());
-        String subir=ir.substring(1,ir.length()-1);
-        String newType;
-        if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
-        else newType=subir.substring(subir.indexOf("["),subir.length());
-        RESULT=new Attribute(newType,getCurrentId(),i);
+        if(v.funcPar && v.dimensions.size()>1){
+            System.out.println("Entered the if");
+            System.out.println("THere are "+v.dimensions+" AND "+v.dimensionsParameters);
+            ArrayList<String> s=new ArrayList<String>();
+            for(int j=0;j<v.dimensionsParameters.size();j++){
+                if(j==0)    append("\n%"+getId()+"= mul i32 %"+v.dimensionsParameters.get(j)+","+a.getReg());
+                else{
+                    int oldId=getCurrentId();
+                    append("\n%"+getId()+"= mul i32 %"+oldId+",%"+v.dimensionsParameters.get(j));
+                    s.add(v.dimensionsParameters.get(j));
+                }
+            }
+            System.out.println("JUst finished the first loop, now dimensions are "+s);
+            RESULT=new Attribute(v.irDec(),i,getCurrentId(),s);
+        }
+        else if(v.funcPar && v.dimensions.size()==1){
+            String baseType=v.getBaseType();
+            append("\n%"+getId()+"= load "+baseType+"*,"+baseType+"** "+v.getReg());
+            int loadId=getCurrentId();
+            append("\n%"+getId()+"= getelementptr inbounds "+baseType+","+baseType+"* %"+loadId+", i32 "+a.getReg());
+            RESULT=new Attribute(baseType,getCurrentId(),i);
+        }
+        else{
+            String ir=v.irDec();
+            String reg=v.getReg();
+            append("\n%"+getId()+" = getelementptr inbounds "+ir+","+ir+"* "+reg+", i32 0, i32 "+a.getReg());
+            String subir=ir.substring(1,ir.length()-1);
+            String newType;
+            if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
+            else newType=subir.substring(subir.indexOf("["),subir.length());
+            RESULT=new Attribute(newType,getCurrentId(),i);
+        }
     }
 :} ;
 
@@ -1236,19 +1455,19 @@ PROC::= ID:name {:
     callingFunctionPar.remove(callingFunctionPar.size()-1);
     callingFunction.remove(callingFunction.size()-1);
     RESULT=new Attribute(f.retType,id);
-:} | PRINT BO PRINTPARList:l BC{:
-        l.forEach(p->append("\n%"+getId()+" = call i32 (i8*, ...) @printf(i8* %"+p+")"));
+:} | PRINT BO HEXPL:l BC{:
+        l.forEach(p->{
+            if(p.type.equals("i8*"))    append("\n%"+getId()+" = call i32 (i8*, ...) @printf(i8* "+p.getReg()+")");
+            else if(p.type.equals("i32"))   append("\n%"+getId()+"= call i32 (i8*, ...) @printf(i8* getelementptr inbounds([3 x i8],[3 x i8]* @.str.int,i32 0,i32 0),i32 "+p.getReg()+")");
+            else if(p.type.equals("double"))   append("\n%"+getId()+"= call i32 (i8*, ...) @printf(i8* getelementptr inbounds([4 x i8],[4 x i8]* @.str.double,i32 0,i32 0),double "+p.getReg()+")");
+            else{
+                errors++;
+                errorBuffer.append("\nCan't print a type that is not a string, double or integer");
+            }
+            append("\n%"+getId()+"= call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8],[2 x i8]* @.str.space,i32 0,i32 0)");
+        });
         append("\n%"+getId()+" = call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8], [2 x i8]* @.str.newline, i32 0, i32 0))");
 :} ;
-
-PRINTPARList::= PRINTPARList:l C STR:s {:
-    l.add(s.regId);
-    RESULT=l;
-:}| STR:s{:
-    ArrayList<Integer> pointers=new ArrayList<Integer>();
-    pointers.add(s.regId);
-    RESULT=pointers;
-:};
 
 CPAREList::= CPARlist:l {:RESULT=l;:} | {:
     ArrayList<Attribute> l=new ArrayList<Attribute>();
@@ -1385,13 +1604,14 @@ FORCOND::= FOR ID:index IN INTVAL:start DOT DOT DOT INTVAL:finish {:
     forloops.add(currFor);
     RESULT=currFor;
 :} GO CONDSTMS GC {:
+    Value v=getValueC(index);
     System.out.println("FInished the for loop, now scopes has size "+scopes.size());
     append("\nbr label %for.inc."+RESULT);
     append("\nfor.inc."+RESULT+":");
-    append("\n%"+getId()+" = load i32,i32* "+getRegVar(index));
+    append("\n%"+getId()+" = load i32,i32* "+v.getReg());
     int k=getCurrentId();
     append("\n%"+getId()+" = add nsw i32 %"+k+",1");
-    append("\nstore i32 %"+getCurrentId()+",i32* "+getRegVar(index));
+    append("\nstore i32 %"+getCurrentId()+",i32* "+v.getReg());
     append("\nbr label %for.cond."+RESULT);
     append("\nfor.exit."+RESULT+":");
     scopes.remove(scopes.size()-1);
@@ -1461,6 +1681,7 @@ FUNCDef::=FUNC ID:name {:
     f.setRet(r);
     f.scope=new Scope();
     scopes.add(f.scope);
+    if(name.equals("main")) f.functionOutput.append("\ncall void () @globalinit()");
     l.stream().filter(e->!e.arrDim).forEach(e->{
         System.out.println("Starting parameter "+e.name);
         if(!e.type.inoutNeedsDeref()){
@@ -1494,6 +1715,7 @@ PARlist::= PARlist:l C PAR:p {:
         for(int i=0;i<dim-1;i++){
             Value x=new Value(32);
             x.setInout(false);
+            x.initialized=true;
             Parameter pfor=new Parameter(x,"dim."+functions.get(functionName).arrayNum+"."+i);
             pfor.setArrayDim();
             l.add(pfor);
@@ -1512,6 +1734,7 @@ PARlist::= PARlist:l C PAR:p {:
         for(int i=0;i<dim-1;i++){
             Value x=new Value(32);
             x.setInout(false);
+            x.initialized=true;
             Parameter pfor=new Parameter(x,"dim."+functions.get(functionName).arrayNum+"."+i);
             pfor.setArrayDim();
             l.add(pfor);
@@ -1528,7 +1751,7 @@ PARlist::= PARlist:l C PAR:p {:
 
 PAR::= ID:label ID:name FTYPE:f {:RESULT=new Parameter(f,name,label);:}| ID:name FTYPE:f {:RESULT=new Parameter(f,name,name);:}| USCORE ID:name FTYPE:f{:RESULT=new Parameter(f,name);:};
  
-FTYPE::= COL INOUTF:i TList:t {:t.setInout(i);RESULT=t;:};
+FTYPE::= COL INOUTF:i TList:t {:t.setInout(i);t.initialized=true;RESULT=t;:};
 
 INOUTF::=INOUT {:RESULT=true;:} | {:RESULT=false;:};
 
