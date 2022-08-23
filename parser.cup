@@ -92,6 +92,8 @@ parser code {:
         public String associatedVarName;
         public ArrayList<String> dimensions;
         public ArrayList<Integer> dimensionsInt;
+        public boolean variable=false;
+        public String getRegVariable;
         public Attribute(String type){
             this.type=type;
             this.immediate=false;
@@ -127,10 +129,17 @@ parser code {:
             this.dimensionsInt=dimensionsInt;
             this.regId=regId;
         }
+        public Attribute(String type,String getReg,String associatedVarName){
+            this.type=type;
+            this.getRegVariable=getReg;
+            this.variable=true;
+            this.associatedVarName=associatedVarName;
+        }
         public void setReg(int regId){
             this.regId=regId;
         }
         public String getReg(){
+            if(this.variable)   return this.getRegVariable;
             if(this.immediate) return this.immediateValue.toString();
             else    return "%"+this.regId;
         }
@@ -332,7 +341,7 @@ parser code {:
             }
         }
         public boolean inoutNeedsDeref(){
-            return this.funcPar && this.inoutPar && this.primitive;
+            return this.funcPar && this.inoutPar && this.primitive && !this.array;
         }
 
         @Override
@@ -382,7 +391,6 @@ parser code {:
     }
     public String getIrOp(operations op,String type){
         boolean integer=type.equals("i32");
-        System.out.println("Inside getirop with type: "+type+" and operator : "+op+", is it integer? "+integer);
         if(op==operations.ADD){
             if(integer) return "add nsw";
             else return "fadd nsw";
@@ -401,36 +409,14 @@ parser code {:
         }
         else return "NOT SUPPORTED";
     }
-    public Value getValueV(String var){
-        System.out.println("Inside getvalueee with: "+var+" and infunction? "+inFunction);
+    public Tuple getValue(String var){
         for(int i=scopes.size()-1;i>=0;i--){
             Scope scope=scopes.get(i);
-            if(scope.variables.containsKey(var)){
-                System.out.println("FOund the variale in the "+i+" scope as a var");
-                return scope.variables.get(var);
-            }
+            if(scope.variables.containsKey(var))    return new Tuple("var",scope.variables.get(var));
+            else if(scope.constants.containsKey(var))   return new Tuple("let",scope.constants.get(var));
         }
-        System.out.println("\tError couldn't find the variable "+var+", right now scope has size:"+scopes.size()+"and here are they now:");
-        for(int i=scopes.size()-1;i>=0;i--){
-            Scope scope=scopes.get(i);
-            System.out.println("vars:"+scope.variables);
-        }
-        return null;
-    }
-    public Value getValueC(String var){
-        System.out.println("Inside getvalueeeC with: "+var+" and infunction? "+inFunction);
-        for(int i=scopes.size()-1;i>=0;i--){
-            Scope scope=scopes.get(i);
-            if(scope.constants.containsKey(var)){
-                System.out.println("FOund the constant in the "+i+" scope as a let");
-                return scope.constants.get(var);
-            }
-        }
-        System.out.println("\tError couldn't find the constant "+var+", right now scope has size:"+scopes.size()+"and here are they now:");
-        for(int i=scopes.size()-1;i>=0;i--){
-            Scope scope=scopes.get(i);
-            System.out.println("lets:"+scope.constants);
-        }
+        errorBuffer.append("\nCouldn't find value "+var);
+        errors++;
         return null;
     }
     public void storeRow(int i,ArrayDec a){
@@ -526,7 +512,6 @@ parser code {:
         else return "ERROR";
     }
     public void report_error(String message, Object info) {
-        System.err.print("ERROR: Syntax error, BUT BEFORE HERE WAS THE MAIN CONTENT: "+functions.get(functionName).functionOutput.toString()+"\n\n");
         if (info instanceof Symbol)
             if (((Symbol)info).left != -1){
                 int line = (((Symbol)info).left)+1;
@@ -553,37 +538,21 @@ terminal PRINT,RETURN;
 terminal BREAK,CONTINUE,DEREF;
 terminal uminus;
 
-non terminal PROG,DEC;
+non terminal PROG,DEC,IFCOMPLETEBLOCK,RET,ASS,STMS,STM,FUNCTION,FSTMTS,FSTM,CONDSTM,CONDSTMS,WHILECOND,FORCOND;
 non terminal HashMap<String,Value> IDINITlist;
 non terminal Tuple INIT;
-non terminal ASS,STMS,STM,FUNCTION,FSTMTS,FSTM,CONDSTM,CONDSTMS;
-non terminal WHILECOND,FORCOND;
 non terminal ArrayList<String> IDlist;
-non terminal Value TYPE;
-non terminal Attribute VAL;
-non terminal Value TList,T;
-non terminal operations OP;
-non terminal Attribute ATTR,EXP,PROC;
+non terminal Value TYPE,TList,T,FTYPE;
+non terminal Attribute VAL,ATTR,EXP,PROC,STR,IDARR,CPAR,IFCC,IFCOND,CONDATTR,COND;
+non terminal operations OP,CONDOP;
 non terminal Parameter PAR;
 non terminal ArrayList<Parameter> PARlist;
-non terminal Attribute CPAR;
-non terminal ArrayList<Attribute> CPARlist,CPAREList;
+non terminal ArrayList<Attribute> CPARlist,CPAREList,EXPL,HEXPL;
 non terminal String RETVAL;
-non terminal Value FTYPE;
-non terminal Boolean INOUTF;
-non terminal Attribute STR;
-non terminal Integer STRINGVALINTERP;
+non terminal Boolean INOUTF,DOTRANGE;
+non terminal Integer STRINGVALINTERP,IFCONDDEC,WHILEDEF;
 non terminal Function FUNCDef;
-non terminal Attribute  IDARR;
 non terminal ArrayDec ARRVALE,ARRVAL;
-non terminal ArrayList<Attribute> EXPL,HEXPL;
-non terminal Integer IFCONDDEC;
-non terminal Attribute IFCC,IFCOND;
-non terminal IFCOMPLETEBLOCK;
-non terminal Attribute CONDATTR,COND;
-non terminal operations CONDOP;
-non terminal Integer WHILEDEF;
-non terminal RET;
 
 precedence left PLUS,MINUS,OR;
 precedence left MUL,DIV,AND;
@@ -888,7 +857,7 @@ STRINGVALINTERP::= STRINGVALINTERP:i STRINGVALI:s EXP:e {:
 ARRVALE::= QO ARRVALE:l QC {:
     l.close();
     RESULT=l;
-:}| ARRVALE:l C ARRVAL:a {:
+:}| ARRVALE:l C ARRVALE:a {:
     if(l.closed && a.closed){
         ArrayList<ArrayDec> arr=new ArrayList<ArrayDec>();
         arr.add(l);
@@ -896,9 +865,9 @@ ARRVALE::= QO ARRVALE:l QC {:
         RESULT=new ArrayDec(arr,a.type,false,a.allImmediates&&l.allImmediates);
     }
     else{
-        l.arraysInside.add(a);
-        l.allImmediates=a.allImmediates&&l.allImmediates;
-        RESULT=l;
+        a.arraysInside.add(0,l);
+        a.allImmediates=a.allImmediates&&l.allImmediates;
+        RESULT=a;
     }
 :}| ARRVAL:a {:RESULT=a;:};
 
@@ -950,37 +919,49 @@ T::=STRING {:RESULT=new Value(true);:}| DOUBLE {:RESULT=new Value(false);:}| INT
 //assignment
 
 ASS::= ID:a EQ EXP:e {:
-    Boolean ok=true;
-    Value v=getValueC(a);
-    if(v!=null){
-        if(v.initialized){
+    Tuple t=getValue(a);
+    Value v=null;
+    if(t!=null){
+        if(t.value.initialized && t.name.equals("let")){
             errorBuffer.append("\nConstant "+a+" has already been assigned");
             errors++;
-            ok=false;
             RESULT=null;
         }
+        else    v=t.value;
     }
-    else    v=getValueV(a);
-    if(v==null || e==null){
-        ok=false;
-        RESULT=null;
-    };
-    String type=v.irDec();
-    if(!e.type.equals(type)){
-        errors++;
-        errorBuffer.append("\nType mismatch in assignment");
-    }
+    if(v==null || e==null)  RESULT=null;
+    else{
+        String type=v.irDec();
+        if(v.inoutPar && !v.array)  type=v.getBaseType();
+        if(!e.type.equals(type)){
+            errors++;
+            errorBuffer.append("\nType mismatch in assignment, a has type "+type+", while e has type "+e.type);
+        }
     //System.out.println("\n\tInside ASSIGNMENT;  with exp: "+e.type+" and id of type: "+type);
-    else if(ok){
-        if(e.type.equals("i8*")){
+        else if(e.type.equals("i8*")){
             append("\n%"+getId()+"= load i8*,i8** "+v.getReg());
             int idA=getCurrentId();
             append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idA+",i8* "+e.getReg()+")");
+            v.initialized=true;
         }
-        else    append("\nstore "+type+" "+e.getReg()+","+type+"* "+v.getReg());
+        else{
+            append("\nstore "+type+" "+e.getReg()+","+type+"* "+v.getReg());
+            v.initialized=true;
+        }
     }
 :} | IDARR:a EQ EXP:e {:
     if(a==null || e==null)  RESULT=null;
+    Tuple t=getValue(a.associatedVarName);
+    Value v=null;
+    if(t!=null){
+        if(t.name.equals("let") && t.value.initialized){
+            errorBuffer.append("\nConstant "+a.associatedVarName+" has already been assigned");
+            errors++;
+            RESULT=null;
+        }
+        else v=t.value;
+    }
+    if(v==null) RESULT=null;
     else if(!e.type.equals(a.type)){
         errors++;
         errorBuffer.append("\nType mismatch in assignment");
@@ -991,16 +972,21 @@ ASS::= ID:a EQ EXP:e {:
             int idA=getCurrentId();
             append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idA+",i8* "+e.getReg()+")");
         }
-        else    append("\nstore "+e.type+" "+e.getReg()+","+e.type+"* "+a.getReg());
+        else{
+            append("\nstore "+e.type+" "+e.getReg()+","+e.type+"* "+a.getReg());
+        }
     }
 :} | ID:a OP:op EQ EXP:e {:
-    Value v=getValueC(a);
-    if(v!=null){
-        errorBuffer.append("\nConstants like "+a+" cannot be used with += -= *= /= operators");
-        errors++;
-        RESULT=null;
+    Tuple t=getValue(a);
+    Value v=null;
+    if(t!=null){
+        if(t.name.equals("let")){
+            errorBuffer.append("\nConstants like "+a+" cannot be used with += -= *= /= operators");
+            errors++;
+            RESULT=null;
+        }
+        else v=t.value;
     }
-    else    v=getValueV(a);
     if(v==null || e==null) RESULT=null;
     else if(!v.initialized){
         errorBuffer.append("\nVariable "+a+" hasn't been initialized yet so it cannot be used with += -= *= /= operators");
@@ -1037,147 +1023,184 @@ ASS::= ID:a EQ EXP:e {:
             append("\nstore "+e.type+" %"+getCurrentId()+","+e.type+"* "+v.getReg());
         }
     }
+:} | IDARR:a OP:op EQ EXP:e {:
+    if(a==null || e==null)  RESULT=null;
+    Tuple t=getValue(a.associatedVarName);
+    Value v=null;
+    if(t!=null){
+        if(t.name.equals("let")){
+            errorBuffer.append("\nConstants like "+a.associatedVarName+" cannot be used with += -= *= /= operators");
+            errors++;
+            RESULT=null;
+        }
+        else{
+            v=t.value;
+            if(!t.value.initialized){
+                errorBuffer.append("\nVariable "+a.associatedVarName+" hasn't ben assigned yet");
+                errors++;
+                v=null;
+                RESULT=null;
+            }
+        }
+    }
+    if(v==null) RESULT=null;
+    else if(!e.type.equals(a.type)){
+        errors++;
+        errorBuffer.append("\nType mismatch in assignment");
+    }
+    else{
+        String type=a.type;
+        if(type.equals("i8*")){
+            if(op==operations.ADD){
+                append("\n%"+getId()+"= alloca [200 x i8]");
+                int newArr=getCurrentId();
+                append("\n%"+getId()+"= getelementptr inbounds [200 x i8],[200 x i8]* %"+newArr+",i32 0, i32 0");
+                int idPointer=getCurrentId();
+                append("\n%"+getId()+"= load i8*,i8** "+a.getReg());
+                int idA=getCurrentId();
+                append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idPointer+",i8* %"+idA+")");
+                append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+idPointer+",i8* "+e.getReg()+")");
+                append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idA+",i8* %"+idPointer+")");
+            }
+            else errorBuffer.append("\nonly operation allowed on string is the add");
+        }
+        else{
+            int id;
+            append("\n%"+getId()+"= load "+type+","+type+"* "+a.getReg());
+            id=getCurrentId();
+            append("\n%"+getId()+" = "+getIrOp(op,e.type)+" "+e.type+" %"+id+","+e.getReg());
+            append("\nstore "+e.type+" %"+getCurrentId()+","+e.type+"* "+a.getReg());
+        }
+    }
 :};
 
 CPAR::= ID:name COL EXP:e {:
-    Parameter p=functions.get(callingFunction.get(callingFunction.size()-1)).pars.get(callingFunctionPar.size()-1);
-    if(p.argLabel){
-        if(!p.label.equals(name)){
-            errorBuffer.append("\nExpected "+p.label+" as the label for the parameter instead received "+name);
+    int np=callingFunctionPar.get(callingFunctionPar.size()-1);
+    String nameF=callingFunction.get(callingFunction.size()-1);
+    Function f=null;
+    Parameter p=null;
+    if(functions.containsKey(nameF)){
+        f=functions.get(nameF);
+        if(np<=f.pars.size()-1) p=f.pars.get(np);
+    }
+    if(e==null || f==null || p==null) RESULT=null;
+    else{
+        if(p.argLabel){
+            if(!p.label.equals(name)){
+                errorBuffer.append("\nExpected "+p.label+" as the label for the parameter instead received "+name);
+                errors++;
+            }
+        }
+        else{
+            errorBuffer.append("\nDidn't expect a label for the parameter instead received "+name);
             errors++;
         }
+        if(p.type.inoutPar){
+            errorBuffer.append("\nExpected an inout parameter, use the & operator");
+            errors++;
+        }
+        if(!p.type.irDec().equals(e.type)){
+            errorBuffer.append("\nType mismatch in parameter passing");
+            errors++;
+        }
+        RESULT=e;
     }
-    else{
-        errorBuffer.append("\nDidn't expect a label for the parameter instead received "+name);
-        errors++;
-    }
-    if(!p.type.irDec().equals(e.type)){
-        errorBuffer.append("\nType mismatch in parameter passing");
-        errors++;
-    }
-    RESULT=e;
 :} | EXP:e {:
-    Parameter p=functions.get(callingFunction.get(callingFunction.size()-1)).pars.get(callingFunctionPar.size()-1);
-    if(p.argLabel){
-        errorBuffer.append("\nExpected "+p.label+" as the label for the parameter instead the label is missing");
-        errors++;
+    int np=callingFunctionPar.get(callingFunctionPar.size()-1);
+    String nameF=callingFunction.get(callingFunction.size()-1);
+    Function f=null;
+    Parameter p=null;
+    if(functions.containsKey(nameF)){
+        f=functions.get(nameF);
+        if(np<=f.pars.size()-1) p=f.pars.get(np);
     }
-    if(!p.type.irDec().equals(e.type)){
-        errorBuffer.append("Type mismatch in parameter passing");
-        errors++;
-    }
-    RESULT=e;
-:} | ID:i {:
-    Value v=getValueC(i);
-    if(v==null) v=getValueV(i);
-    if(v==null) RESULT=null;
-    else if(!v.initialized){
-        errors++;
-        errorBuffer.append("\nValue "+i+" hasn't already been initialized before this function call");
-        RESULT=null;
-    }
+    if(e==null || f==null || p==null) RESULT=null;
     else{
-        if(v.array){
-            if(v.funcPar){
-                append("\n%"+getId()+" = load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
-                RESULT=new Attribute(v.getBaseType(),i,getCurrentId(),v.dimensionsParameters);
-            }
-            else{
-                String type=v.irDec();
-                int lastId=-1;
-                ArrayList<Integer> subdim=new ArrayList<Integer>();
-                for(int j=0;j<v.dimensions.size();j++){
-                    String newType,subir;
-                    if(j>0){
-                        append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* %"+lastId+",i32 0,i32 0");
-                        subir=type.substring(1,type.length()-1);
-                        if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
-                        else newType=subir.substring(subir.indexOf("["),subir.length());
-                        type=newType;
-                        lastId=getCurrentId();
-                    }
-                    else{
-                        append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* "+v.getReg()+",i32 0,i32 0");
-                        subir=type.substring(1,type.length()-1);
-                        if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
-                        else newType=subir.substring(subir.indexOf("["),subir.length());
-                        type=newType;
-                        lastId=getCurrentId();
-                        subdim.add(v.dimensions.get(j));
-                    }
-                }
-                if(subdim.size()>0) RESULT=new Attribute(type,i,subdim,lastId);
-                else RESULT=new Attribute(type,lastId,i);
-            }
+        if(p.argLabel){
+            errorBuffer.append("\nExpected "+p.label+" as the label for the parameter instead the label is missing");
+            errors++;
         }
-        else if(v.str){
-            append("\n%"+getId()+"= getelementptr "+v.irDec()+","+v.irDec()+"* "+v.getReg()+",i32 0,i32 0");
-            RESULT=new Attribute(v.irDec(),getCurrentId(),i);
+        if(p.type.inoutPar){
+            errorBuffer.append("\nExpected an inout parameter, use the & operator");
+            errors++;
+        }
+        if(!p.type.irDec().equals(e.type)){
+            errorBuffer.append("\nType mismatch in parameter passing p has type: "+p.type.irDec()+", while e has type "+e.type);
+            errors++;
+        }
+        RESULT=e;
+    }
+:} | DEREF:d EXP:e {:
+    int np=callingFunctionPar.get(callingFunctionPar.size()-1);
+    String nameF=callingFunction.get(callingFunction.size()-1);
+    Function f=null;
+    Parameter p=null;
+    if(functions.containsKey(nameF)){
+        f=functions.get(nameF);
+        if(np<=f.pars.size()-1) p=f.pars.get(np);
+    }
+    if(e==null || f==null || p==null) RESULT=null;
+    else{
+        if(p.argLabel){
+            errorBuffer.append("\nExpected "+p.label+" as the label for the parameter instead the label is missing");
+            errors++;
+        }
+        if(!p.type.inoutPar){
+            errorBuffer.append("\nTrying to dereferenciate while the parameter is not inout");
+            errors++;
+        }
+        if(e.associatedVarName==null){
+            errorBuffer.append("\nAn inout parameter must be always a variable");
+            errors++;
+        }
+        if(!p.type.irDec().equals(e.type)){
+            errorBuffer.append("\nType mismatch in parameter passing, expected "+p.type.irDec()+", and receiving "+e.type);
+            errors++;
+        }
+        RESULT=e;
+    }
+:} | ID:name COL DEREF EXP:e {:
+    int np=callingFunctionPar.get(callingFunctionPar.size()-1);
+    String nameF=callingFunction.get(callingFunction.size()-1);
+    Function f=null;
+    Parameter p=null;
+    if(functions.containsKey(nameF)){
+        f=functions.get(nameF);
+        if(np<=f.pars.size()-1) p=f.pars.get(np);
+    }
+    if(e==null || f==null || p==null) RESULT=null;
+    else{
+        if(p.argLabel){
+            if(!p.label.equals(name)){
+                errorBuffer.append("\nExpected "+p.label+" as the label for the parameter instead received "+name);
+                errors++;
+            }
         }
         else{
-            append("\n%"+getId()+"= load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
-            RESULT=new Attribute(v.irDec(),getCurrentId(),i);
+            errorBuffer.append("\nDidn't expect a label for the parameter instead received "+name);
+            errors++;
         }
+        if(!p.type.inoutPar){
+            errorBuffer.append("\nTrying to dereferenciate while the parameter is not inout");
+            errors++;
+        }
+        if(e.associatedVarName==null){
+            errorBuffer.append("\nAn inout parameter must be always a variable");
+            errors++;
+        }
+        if(!p.type.irDec().equals(e.type)){
+            errorBuffer.append("\nType mismatch in parameter passing");
+            errors++;
+        }
+        RESULT=e;
     }
-:} | ID:name COL ID:i {:
-    Value v=getValueC(i);
-    if(v==null) v=getValueV(i);
-    if(v==null) RESULT=null;
-    else if(!v.initialized){
-        errors++;
-        errorBuffer.append("\nConstant "+i+" hasn't already been initialized before this function call");
-        RESULT=null;
-    }
-    else{
-        if(v.array){
-            if(v.funcPar){
-                append("\n%"+getId()+" = load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
-                RESULT=new Attribute(v.getBaseType(),i,getCurrentId(),v.dimensionsParameters);
-            }
-            else{
-                String type=v.irDec();
-                int lastId=-1;
-                ArrayList<Integer> subdim=new ArrayList<Integer>();
-                for(int j=0;j<v.dimensions.size();j++){
-                    String newType,subir;
-                    if(j>0){
-                        append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* %"+lastId+",i32 0,i32 0");
-                        subir=type.substring(1,type.length()-1);
-                        if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
-                        else newType=subir.substring(subir.indexOf("["),subir.length());
-                        type=newType;
-                        lastId=getCurrentId();
-                    }
-                    else{
-                        append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* "+v.getReg()+",i32 0,i32 0");
-                        subir=type.substring(1,type.length()-1);
-                        if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
-                        else newType=subir.substring(subir.indexOf("["),subir.length());
-                        type=newType;
-                        lastId=getCurrentId();
-                        subdim.add(v.dimensions.get(j));
-                    }
-                }
-                if(subdim.size()>0) RESULT=new Attribute(type,i,subdim,lastId);
-                else RESULT=new Attribute(type,lastId,i);
-            }
-        }
-        else if(v.str){
-            append("\n%"+getId()+"= getelementptr "+v.irDec()+","+v.irDec()+"* "+v.getReg()+",i32 0,i32 0");
-            RESULT=new Attribute(v.irDec(),getCurrentId(),i);
-        }
-        else{
-            append("\n%"+getId()+"= load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
-            RESULT=new Attribute(v.irDec(),getCurrentId(),i);
-        }
-    }
-:} | IDARR:i | ID:name COL IDARR:i | DEREF IDARR:i | DEREF ID:i | ID:name COL DEREF IDARR:i | ID:name COL DEREF ID:i ;
+:};
 
 EXP::= EXP:e PLUS EXP:a {:
     if(e==null || a==null)  RESULT=null;
     else if(!e.type.equals(a.type)){
         errors++;
-        errorBuffer.append("\nType mismatch in assignment");
+        errorBuffer.append("\nType mismatch in assignment, e has type "+e.type+",while a has type "+a.type);
         RESULT=e;
     }
     else if(!e.type.equals("double") && !e.type.equals("i32") && !e.type.equals("i8*")){
@@ -1215,7 +1238,7 @@ EXP::= EXP:e PLUS EXP:a {:
     if(e==null || a==null)  RESULT=null;
     else if(!e.type.equals(a.type)){
         errors++;
-        errorBuffer.append("\nType mismatch in assignment");
+        errorBuffer.append("\nType mismatch in assignment, e has type "+e.type+",while a has type "+a.type);
         RESULT=e;
     }
     else if(!e.type.equals("double") && !e.type.equals("i32")){
@@ -1240,7 +1263,7 @@ EXP::= EXP:e PLUS EXP:a {:
     if(e==null || a==null)  RESULT=null;
     else if(!e.type.equals(a.type)){
         errors++;
-        errorBuffer.append("\nType mismatch in assignment");
+        errorBuffer.append("\nType mismatch in assignment, e has type "+e.type+",while a has type "+a.type);
         RESULT=e;
     }
     else if(!e.type.equals("double") && !e.type.equals("i32")){
@@ -1265,7 +1288,7 @@ EXP::= EXP:e PLUS EXP:a {:
     if(e==null || a==null)  RESULT=null;
     else if(!e.type.equals(a.type)){
         errors++;
-        errorBuffer.append("\nType mismatch in assignment");
+        errorBuffer.append("\nType mismatch in assignment, e has type "+e.type+",while a has type "+a.type);
         RESULT=e;
     }
     else if(!e.type.equals("double") && !e.type.equals("i32")){
@@ -1288,43 +1311,191 @@ EXP::= EXP:e PLUS EXP:a {:
     }
 :} | BO EXP:e BC {:RESULT=e;:}
 | MINUS EXP:e {:
-    append("\n%"+getId()+" = sub "+e.type+" 0,"+e.getReg());
-    RESULT=new Attribute(e.type,getCurrentId());
+    if(e!=null){
+        if(e.type.equals("i32")){
+            append("\n%"+getId()+" = sub i32 0,"+e.getReg());
+            RESULT=new Attribute(e.type,getCurrentId());
+        }
+        else if(e.type.equals("double")){
+            append("\n%"+getId()+" = fsub double 0,"+e.getReg());
+            RESULT=new Attribute(e.type,getCurrentId());
+        }
+        else{
+            errorBuffer.append("\nCannot do a substraction to a value that is not an integer or a double");
+            errors++;
+            RESULT=null;
+        }
+    }
+    else RESULT=null;
 :} %prec uminus;
 
 
 ATTR::= PROC:p {:
     RESULT=p;
 :} | ID:i {:
-    Value v=getValueC(i);
-    if(v==null)    v=getValueV(i);
+    Tuple t=getValue(i);
+    Value v=null;
+    if(t!=null) v=t.value;
     if(v==null) RESULT=null;
     else if(!v.initialized){
         errors++;
         errorBuffer.append("\nValue "+i+" hasn't already been initialized before this expression");
-        System.out.println("Value "+i+" hasn't already been initialized before this expression");
         RESULT=null;
     }
     else{
         String type=v.irDec();
         String reg=v.getReg();
         int id;
-        append("\n%"+getId()+"= load "+type+","+type+"* "+reg);
-        id=getCurrentId();
-        RESULT=new Attribute(type,id,i);
+        if(callingFunction.size()>0){
+            int np=callingFunctionPar.get(callingFunctionPar.size()-1);
+            String nameF=callingFunction.get(callingFunction.size()-1);
+            Function f=null;
+            Parameter p=null;
+            if(functions.containsKey(nameF)){
+                f=functions.get(nameF);
+                if(np<=f.pars.size()-1) p=f.pars.get(np);
+            }
+            if(f!=null && p!=null){
+                if(v.array){
+                    if(v.funcPar){
+                        append("\n%"+getId()+" = load "+v.irDec()+","+v.irDec()+"* "+v.getReg());
+                        RESULT=new Attribute(v.irDec(),i,getCurrentId(),v.dimensionsParameters);
+                    }
+                    else{
+                        int lastId=-1;
+                        ArrayList<Integer> subdim=new ArrayList<Integer>();
+                        for(int j=0;j<v.dimensions.size();j++){
+                            String newType,subir;
+                            if(j==0){
+                                append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* "+v.getReg()+",i32 0,i32 0");
+                                subir=type.substring(1,type.length()-1);
+                                if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
+                                else newType=subir.substring(subir.indexOf("["),subir.length());
+                                type=newType;
+                                lastId=getCurrentId();
+                            }
+                            else{
+                                append("\n%"+getId()+" = getelementptr inbounds "+type+","+type+"* %"+lastId+",i32 0,i32 0");
+                                subir=type.substring(1,type.length()-1);
+                                if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
+                                else newType=subir.substring(subir.indexOf("["),subir.length());
+                                type=newType;
+                                lastId=getCurrentId();
+                                subdim.add(v.dimensions.get(j));
+                            }
+                        }
+                        if(subdim.size()>0) RESULT=new Attribute(type+"*",i,subdim,lastId);
+                        else RESULT=new Attribute(type+"*",lastId,i);
+                    }
+                }
+                else if(type.equals("i8*")){
+                    append("\n%"+getId()+"= load "+type+","+type+"* "+reg);
+                    id=getCurrentId();
+                    RESULT=new Attribute(type,id,i);
+                }
+                else if(type.equals("double") || type.equals("i32")){
+                    if(!p.type.inoutPar){
+                        append("\n%"+getId()+"= load "+type+","+type+"* "+v.getReg());
+                        RESULT=new Attribute(type,getCurrentId(),i);
+                    }
+                    else    RESULT=new Attribute(type+"*",v.getReg(),i);
+                }
+                else RESULT=null;
+            }
+            else    RESULT=null;
+        }
+        else{
+            if(v.inoutPar && !v.array)  type=v.getBaseType();
+            if(type.equals("double") || type.equals("i32") || type.equals("i8*")){
+                append("\n%"+getId()+"= load "+type+","+type+"* "+reg);
+                id=getCurrentId();
+                RESULT=new Attribute(type,id,i);
+            }
+            else{
+                errorBuffer.append("\nCan't use an array in an expression,type "+v.irDec());
+                errors++;
+                RESULT=null;
+            }
+        }
     }
 :} | VAL:v {:
     RESULT=v;
 :} | IDARR:i {:
     int id;
-    append("\n%"+getId()+"= load "+i.type+","+i.type+"* "+i.getReg());
-    id=getCurrentId();
-    RESULT=new Attribute(i.type,id);
+    if(i==null) RESULT=null;
+    else{
+        Tuple t=getValue(i.associatedVarName);
+        Value v=null;
+        if(t!=null) v=t.value;
+        String type=v.irDec();
+        if(callingFunction.size()>0){
+            int np=callingFunctionPar.get(callingFunctionPar.size()-1);
+            String nameF=callingFunction.get(callingFunction.size()-1);
+            Function f=null;
+            Parameter p=null;
+            if(functions.containsKey(nameF)){
+                f=functions.get(nameF);
+                if(np<=f.pars.size()-1) p=f.pars.get(np);
+            }
+            if(f!=null && p!=null){
+                if(i.arrVar){
+                    if(i.arrFunc){
+                        String baseType=v.getBaseType();
+                        append("\n%"+getId()+"= load "+i.type+","+i.type+"* "+v.getReg());
+                        int loadId=getCurrentId();
+                        append("\n%"+getId()+"= getelementptr inbounds "+baseType+","+i.type+" %"+loadId+", i32 "+i.getReg());
+                        RESULT=new Attribute(i.type,i.associatedVarName,getCurrentId(),i.dimensions);
+                    }
+                    else{
+                        String subir,newType="",ir=i.type;
+                        int lastId=i.regId;
+                        ArrayList<Integer> subdim=new ArrayList<Integer>();
+                        for(int po=0;po<i.dimensionsInt.size();po++){
+                            append("\n%"+getId()+" = getelementptr inbounds "+ir+","+ir+"* %"+lastId+", i32 0, i32 0");
+                            lastId=getCurrentId();
+                            subir=ir.substring(1,ir.length()-1);
+                            if(po!=i.dimensionsInt.size()-1){
+                                newType=subir.substring(subir.indexOf("["),subir.length());
+                            }
+                            else{
+                                newType=subir.substring(subir.indexOf("x")+2,subir.length());
+                            }
+                            ir=newType;
+                            if(po>0) subdim.add(i.dimensionsInt.get(po));
+                        }
+                        if(subdim.size()>0)    RESULT=new Attribute(newType+"*",i.associatedVarName,subdim,lastId);
+                        else    RESULT=new Attribute(newType+"*",lastId,i.associatedVarName);
+                    }
+                }
+                else if(i.type.equals("i8*")){
+                    append("\n%"+getId()+"= load i8*,i8** "+i.getReg());
+                    id=getCurrentId();
+                    RESULT=new Attribute("i8*",id,i.associatedVarName);
+                }
+                else if(i.type.equals("double") || i.type.equals("i32")){
+                    if(!p.type.inoutPar){
+                        append("\n%"+getId()+"= load "+i.type+","+i.type+"* "+i.getReg());
+                        RESULT=new Attribute(i.type,getCurrentId(),i.associatedVarName);
+                    }
+                    else    RESULT=new Attribute(i.type+"*",i.getReg(),i.associatedVarName);
+                }
+                else RESULT=null;
+            }
+        }
+        else{
+            if(i.type.equals("i32") || i.type.equals("double") || i.type.equals("i8*")){
+                append("\n%"+getId()+"= load "+i.type+","+i.type+"* "+i.getReg());
+                id=getCurrentId();
+                RESULT=new Attribute(i.type,id);
+            }
+            else RESULT=null;
+        }
+    }
 :} ;
 
 IDARR::= IDARR:i QO EXP:a QC {:
     if(i.arrFunc){
-        if(i.dimensions.size()>1){
+        if(i.dimensions.size()>0){
             ArrayList<String> s=new ArrayList<String>();
             for(int j=0;j<i.dimensions.size();j++){
                 if(j==0)    append("\n%"+getId()+"= mul i32 %"+i.dimensions.get(j)+","+a.getReg());
@@ -1341,8 +1512,9 @@ IDARR::= IDARR:i QO EXP:a QC {:
         else{
             append("\n%"+getId()+"= add nsw i32 "+a.getReg()+","+i.getReg());
             int lastId=getCurrentId();
-            Value v=getValueC(i.associatedVarName);
-            if(v==null) v=getValueV(i.associatedVarName);
+            Tuple t=getValue(i.associatedVarName);
+            Value v=null;
+            if(t!=null) v=t.value;
             String baseType=v.getBaseType();
             append("\n%"+getId()+"= load "+i.type+","+i.type+"* "+v.getReg());
             int loadId=getCurrentId();
@@ -1355,13 +1527,21 @@ IDARR::= IDARR:i QO EXP:a QC {:
         append("\n%"+getId()+" = getelementptr inbounds "+i.type+","+i.type+"* "+i.getReg()+", i32 0, i32 "+a.getReg());
         String subir=ir.substring(1,ir.length()-1);
         String newType;
-        if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
-        else newType=subir.substring(subir.indexOf("["),subir.length());
-        RESULT=new Attribute(newType,getCurrentId(),i.associatedVarName);
+        if(subir.indexOf("[")<0){
+            newType=subir.substring(subir.indexOf("x")+2,subir.length());
+            RESULT=new Attribute(newType,getCurrentId(),i.associatedVarName);
+        }
+        else{
+            newType=subir.substring(subir.indexOf("["),subir.length());
+            ArrayList<Integer> subdim=new ArrayList<Integer>();
+            for(int at=1;at<i.dimensionsInt.size();at++) subdim.add(i.dimensionsInt.get(at));
+            RESULT=new Attribute(newType,i.associatedVarName,subdim,getCurrentId());
+        }
     }
 :} | ID:i QO EXP:a QC {:
-    Value v=getValueC(i);
-    if(v==null) v=getValueV(i);
+    Tuple t=getValue(i);
+    Value v=null;
+    if(t!=null) v=t.value;
     if(v==null){
         errorBuffer.append("\nValue "+i+" has not been declared yet");
         errors++;
@@ -1379,8 +1559,6 @@ IDARR::= IDARR:i QO EXP:a QC {:
     }
     else{
         if(v.funcPar && v.dimensions.size()>1){
-            System.out.println("Entered the if");
-            System.out.println("THere are "+v.dimensions+" AND "+v.dimensionsParameters);
             ArrayList<String> s=new ArrayList<String>();
             for(int j=0;j<v.dimensionsParameters.size();j++){
                 if(j==0)    append("\n%"+getId()+"= mul i32 %"+v.dimensionsParameters.get(j)+","+a.getReg());
@@ -1390,7 +1568,6 @@ IDARR::= IDARR:i QO EXP:a QC {:
                     s.add(v.dimensionsParameters.get(j));
                 }
             }
-            System.out.println("JUst finished the first loop, now dimensions are "+s);
             RESULT=new Attribute(v.irDec(),i,getCurrentId(),s);
         }
         else if(v.funcPar && v.dimensions.size()==1){
@@ -1406,9 +1583,16 @@ IDARR::= IDARR:i QO EXP:a QC {:
             append("\n%"+getId()+" = getelementptr inbounds "+ir+","+ir+"* "+reg+", i32 0, i32 "+a.getReg());
             String subir=ir.substring(1,ir.length()-1);
             String newType;
-            if(subir.indexOf("[")<0)    newType=subir.substring(subir.indexOf("x")+2,subir.length());
-            else newType=subir.substring(subir.indexOf("["),subir.length());
-            RESULT=new Attribute(newType,getCurrentId(),i);
+            if(subir.indexOf("[")<0){
+                newType=subir.substring(subir.indexOf("x")+2,subir.length());
+                RESULT=new Attribute(newType,getCurrentId(),i);
+            }
+            else{
+                newType=subir.substring(subir.indexOf("["),subir.length());
+                ArrayList<Integer> subdim=new ArrayList<Integer>();
+                for(int at=1;at<v.dimensions.size();at++) subdim.add(v.dimensions.get(at));
+                RESULT=new Attribute(newType,i,subdim,getCurrentId());
+            }
         }
     }
 :} ;
@@ -1445,16 +1629,32 @@ PROC::= ID:name {:
     callingFunction.add(name);
     callingFunctionPar.add(0);
 :} BO CPAREList:l BC {:
-    Function f=functions.get(name);
+    Function f=null;
     int id=0;
-    if(f.retType.equals("void"))    append("\ncall "+f.irDec()+"("+l.stream().map(e->e.type+" "+e.getReg()).collect(Collectors.joining(","))+")");
-    else{
-        append("\n%"+(getId())+"=call "+f.irDec()+"("+l.stream().map(e->e.type+" "+e.getReg()).collect(Collectors.joining(","))+")");
-        id=getCurrentId();
+    if(functions.containsKey(name)){
+        f=functions.get(name);
+        String fParList="("+f.pars.stream().map(e->e.type.irDec()).collect(Collectors.joining(","))+")";
+        if(!fParList.equals("("+l.stream().map(e->e.type+" "+e.getReg()).collect(Collectors.joining(","))+")")){
+            errorBuffer.append("\nPassing a wrong list of parameters to function "+name);
+            errors++;
+            f=null;
+        }
+        else{
+            if(f.retType.equals("void"))    append("\ncall "+f.irDec()+"("+l.stream().map(e->e.type+" "+e.getReg()).collect(Collectors.joining(","))+")");
+            else{
+                append("\n%"+(getId())+"=call "+f.irDec()+"("+l.stream().map(e->e.type+" "+e.getReg()).collect(Collectors.joining(","))+")");
+                id=getCurrentId();
+            }
+        }
     }
     callingFunctionPar.remove(callingFunctionPar.size()-1);
     callingFunction.remove(callingFunction.size()-1);
-    RESULT=new Attribute(f.retType,id);
+    if(f!=null) RESULT=new Attribute(f.retType,id);
+    else{
+        errorBuffer.append("\nCalling a function that either is not declared yet or doesn't exist at all");
+        errors++;
+        RESULT=null;
+    }
 :} | PRINT BO HEXPL:l BC{:
         l.forEach(p->{
             if(p.type.equals("i8*"))    append("\n%"+getId()+" = call i32 (i8*, ...) @printf(i8* "+p.getReg()+")");
@@ -1464,49 +1664,50 @@ PROC::= ID:name {:
                 errors++;
                 errorBuffer.append("\nCan't print a type that is not a string, double or integer");
             }
-            append("\n%"+getId()+"= call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8],[2 x i8]* @.str.space,i32 0,i32 0)");
+            append("\n%"+getId()+"= call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8],[2 x i8]* @.str.space,i32 0,i32 0))");
         });
         append("\n%"+getId()+" = call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8], [2 x i8]* @.str.newline, i32 0, i32 0))");
 :} ;
 
 CPAREList::= CPARlist:l {:RESULT=l;:} | {:
     ArrayList<Attribute> l=new ArrayList<Attribute>();
-    System.out.println("REduced EMPTY in cparElist");
     RESULT=l;
 :};
 
 CPARlist::= CPARlist:l C CPAR:p {:
-    System.out.println("REduced cparlist c cpar in cparlist");
-    l.add(p);
-    if(p.arrVar){
-        if(p.arrFunc){
-            for(int i=0;i<p.dimensions.size();i++){
-                append("\n%"+getId()+"= load i32,i32* "+p.dimensions.get(i));
-                l.add(new Attribute("i32",getCurrentId()));
+    if(p!=null){
+        l.add(p);
+        if(p.arrVar){
+            if(p.arrFunc){
+                for(int i=0;i<p.dimensions.size();i++){
+                    append("\n%"+getId()+"= add nsw i32 0, %"+p.dimensions.get(i));
+                    l.add(new Attribute("i32",getCurrentId()));
+                }
+                callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+p.dimensions.size());
             }
-            callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+p.dimensions.size());
-        }
-        else{
-            for(int i=0;i<p.dimensionsInt.size();i++)  l.add(new Attribute(p.dimensionsInt.get(i),"i32"));
-            callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+p.dimensionsInt.size());
+            else{
+                for(int i=0;i<p.dimensionsInt.size();i++)  l.add(new Attribute(p.dimensionsInt.get(i),"i32"));
+                callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+p.dimensionsInt.size());
+            }
         }
     }
     RESULT=l;
 :} | CPAR:p{:
     ArrayList<Attribute> l=new ArrayList<Attribute>();
-    System.out.println("REduced cpar in cparlist");
-    l.add(p);
-    if(p.arrVar){
-        if(p.arrFunc){
-            for(int i=0;i<p.dimensions.size();i++){
-                append("\n%"+getId()+"= load i32,i32* "+p.dimensions.get(i));
-                l.add(new Attribute("i32",getCurrentId()));
+    if(p!=null){
+        l.add(p);
+        if(p.arrVar){
+            if(p.arrFunc){
+                for(int i=0;i<p.dimensions.size();i++){
+                    append("\n%"+getId()+"= load i32,i32* "+p.dimensions.get(i));
+                    l.add(new Attribute("i32",getCurrentId()));
+                }
+                callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+p.dimensions.size());
             }
-            callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+p.dimensions.size());
-        }
-        else{
-            for(int i=0;i<p.dimensionsInt.size();i++)  l.add(new Attribute(p.dimensionsInt.get(i),"i32"));
-            callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+p.dimensionsInt.size());
+            else{
+                for(int i=0;i<p.dimensionsInt.size();i++)  l.add(new Attribute(p.dimensionsInt.get(i),"i32"));
+                callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+p.dimensionsInt.size());
+            }
         }
     }
     RESULT=l;
@@ -1580,10 +1781,10 @@ WHILEDEF::= WHILE {:
     RESULT=currWh;
 :};
 
-FORCOND::= FOR ID:index IN INTVAL:start DOT DOT DOT INTVAL:finish {:
-    System.out.println("BEfore this for the size of the scope array was : " +scopes.size());
+DOTRANGE::= DOT DOT DOT {:RESULT=true;:} | DOT DOT LESS {:RESULT=false;:} ;
+
+FORCOND::= FOR ID:index IN INTVAL:start DOTRANGE:d INTVAL:finish {:
     scopes.add(new Scope());
-    System.out.println("AFter it's "+scopes.size());
     int currFor=currentFor++;
     append("\nbr label %for.init."+currFor);
     append("\nfor.init."+currFor+":");
@@ -1597,15 +1798,15 @@ FORCOND::= FOR ID:index IN INTVAL:start DOT DOT DOT INTVAL:finish {:
     append("\nfor.cond."+currFor+":");
     append("\n%"+getId()+" = load i32,i32* %"+indexId);
     int idload=getCurrentId();
-    append("\n%"+getId()+" = icmp sle i32 %"+idload+","+finish);
+    if(d)   append("\n%"+getId()+" = icmp sle i32 %"+idload+","+finish);
+    else    append("\n%"+getId()+" = icmp slt i32 %"+idload+","+finish);
     append("\nbr i1 %"+getCurrentId()+", label %for.body."+currFor+", label %for.exit."+currFor);
     append("\nfor.body."+currFor+":");
     if(!inConditional)  inConditional=true;
     forloops.add(currFor);
     RESULT=currFor;
 :} GO CONDSTMS GC {:
-    Value v=getValueC(index);
-    System.out.println("FInished the for loop, now scopes has size "+scopes.size());
+    Value v=getValue(index).value;
     append("\nbr label %for.inc."+RESULT);
     append("\nfor.inc."+RESULT+":");
     append("\n%"+getId()+" = load i32,i32* "+v.getReg());
@@ -1617,8 +1818,143 @@ FORCOND::= FOR ID:index IN INTVAL:start DOT DOT DOT INTVAL:finish {:
     scopes.remove(scopes.size()-1);
     if(forloops.size()==1) inConditional=false;
     forloops.remove(forloops.size()-1);
-:} | FOR ID IN INTVAL DOT DOT LESS INTVAL GO CONDSTMS GC | FOR ID IN ID DOT DOT DOT ID GO CONDSTMS GC | FOR ID IN ID DOT DOT LESS ID GO CONDSTMS GC | 
-FOR ID IN ID DOT DOT DOT INTVAL GO CONDSTMS GC | FOR ID IN ID DOT DOT LESS INTVAL GO CONDSTMS GC | FOR ID IN INTVAL DOT DOT DOT ID GO CONDSTMS GC | FOR ID IN INTVAL DOT DOT LESS ID GO CONDSTMS GC | FOR ID IN STRINGVAL GO CONDSTMS GC;
+:} | FOR ID:index IN ID:start DOTRANGE:d ID:finish {:
+    scopes.add(new Scope());
+    int currFor=currentFor++;
+    Tuple tstart=getValue(start),tfinish=getValue(finish);
+    Value vstart=null,vfinish=null;
+    if(tstart!=null && tfinish!=null){
+        if(tstart.value.initialized && tfinish.value.initialized && tstart.value.irDec().equals("i32") && tfinish.value.irDec().equals("i32")){
+            vstart=tstart.value;
+            vfinish=tfinish.value;
+        }
+    }
+    append("\nbr label %for.init."+currFor);
+    append("\nfor.init."+currFor+":");
+    append("\n%"+getId()+" = alloca i32, align 4");
+    int indexId=getCurrentId();
+    Value v=new Value(32);
+    v.setReg(indexId);
+    scopes.get(scopes.size()-1).constants.put(index,v);
+    if(vstart!=null && vfinish!=null){
+        append("\n%"+getId()+"= load i32,i32* "+vstart.getReg());
+        append("\nstore i32 %"+getCurrentId()+",i32* %"+indexId);
+        append("\nbr label %for.cond."+currFor);
+        append("\nfor.cond."+currFor+":");
+        append("\n%"+getId()+" = load i32,i32* %"+indexId);
+        int idload=getCurrentId();
+        append("\n%"+getId()+" = load i32,i32* "+vfinish.getReg());
+        int idloadfinish=getCurrentId();
+        if(d)   append("\n%"+getId()+" = icmp sle i32 %"+idload+",%"+idloadfinish);
+        else    append("\n%"+getId()+" = icmp slt i32 %"+idload+",%"+idloadfinish);
+        append("\nbr i1 %"+getCurrentId()+", label %for.body."+currFor+", label %for.exit."+currFor);
+        append("\nfor.body."+currFor+":");
+    }
+    if(!inConditional)  inConditional=true;
+    forloops.add(currFor);
+    RESULT=currFor;
+:} GO CONDSTMS GC {:
+    Value v=getValue(index).value;
+    append("\nbr label %for.inc."+RESULT);
+    append("\nfor.inc."+RESULT+":");
+    append("\n%"+getId()+" = load i32,i32* "+v.getReg());
+    int k=getCurrentId();
+    append("\n%"+getId()+" = add nsw i32 %"+k+",1");
+    append("\nstore i32 %"+getCurrentId()+",i32* "+v.getReg());
+    append("\nbr label %for.cond."+RESULT);
+    append("\nfor.exit."+RESULT+":");
+    scopes.remove(scopes.size()-1);
+    if(forloops.size()==1) inConditional=false;
+    forloops.remove(forloops.size()-1);
+:} | 
+FOR ID:index IN ID:start DOTRANGE:d INTVAL:finish {:
+    scopes.add(new Scope());
+    int currFor=currentFor++;
+    Tuple tstart=getValue(start);
+    Value vstart=null;
+    if(tstart!=null){
+        if(tstart.value.initialized && tstart.value.irDec().equals("i32"))    vstart=tstart.value;
+    }
+    append("\nbr label %for.init."+currFor);
+    append("\nfor.init."+currFor+":");
+    append("\n%"+getId()+" = alloca i32, align 4");
+    int indexId=getCurrentId();
+    Value v=new Value(32);
+    v.setReg(indexId);
+    scopes.get(scopes.size()-1).constants.put(index,v);
+    if(vstart!=null){
+        append("\n%"+getId()+"= load i32,i32* "+vstart.getReg());
+        append("\nstore i32 %"+getCurrentId()+",i32* %"+indexId);
+        append("\nbr label %for.cond."+currFor);
+        append("\nfor.cond."+currFor+":");
+        append("\n%"+getId()+" = load i32,i32* %"+indexId);
+        int idload=getCurrentId();
+        if(d)   append("\n%"+getId()+" = icmp sle i32 %"+idload+","+finish);
+        else    append("\n%"+getId()+" = icmp slt i32 %"+idload+","+finish);
+        append("\nbr i1 %"+getCurrentId()+", label %for.body."+currFor+", label %for.exit."+currFor);
+        append("\nfor.body."+currFor+":");
+    }
+    if(!inConditional)  inConditional=true;
+    forloops.add(currFor);
+    RESULT=currFor;
+:} GO CONDSTMS GC {:
+    Value v=getValue(index).value;
+    append("\nbr label %for.inc."+RESULT);
+    append("\nfor.inc."+RESULT+":");
+    append("\n%"+getId()+" = load i32,i32* "+v.getReg());
+    int k=getCurrentId();
+    append("\n%"+getId()+" = add nsw i32 %"+k+",1");
+    append("\nstore i32 %"+getCurrentId()+",i32* "+v.getReg());
+    append("\nbr label %for.cond."+RESULT);
+    append("\nfor.exit."+RESULT+":");
+    scopes.remove(scopes.size()-1);
+    if(forloops.size()==1) inConditional=false;
+    forloops.remove(forloops.size()-1);
+:} | FOR ID:index IN INTVAL:start DOTRANGE:d ID:finish {:
+    scopes.add(new Scope());
+    int currFor=currentFor++;
+    append("\nbr label %for.init."+currFor);
+    append("\nfor.init."+currFor+":");
+    append("\n%"+getId()+" = alloca i32, align 4");
+    int indexId=getCurrentId();
+    Value v=new Value(32);
+    v.setReg(indexId);
+    scopes.get(scopes.size()-1).constants.put(index,v);
+    Tuple tfinish=getValue(finish);
+    Value vfinish=null;
+    if(tfinish!=null){
+        if(tfinish.value.initialized && tfinish.value.irDec().equals("i32"))    vfinish=tfinish.value;
+    }
+    append("\nstore i32 "+start+",i32* %"+indexId);
+    append("\nbr label %for.cond."+currFor);
+    append("\nfor.cond."+currFor+":");
+    append("\n%"+getId()+" = load i32,i32* %"+indexId);
+    int idload=getCurrentId();
+    if(vfinish!=null){
+        append("\n%"+getId()+" = load i32,i32* "+vfinish.getReg());
+        int idloadfinish=getCurrentId();
+        if(d)   append("\n%"+getId()+" = icmp sle i32 %"+idload+",%"+idloadfinish);
+        else    append("\n%"+getId()+" = icmp slt i32 %"+idload+",%"+idloadfinish);
+    }
+    append("\nbr i1 %"+getCurrentId()+", label %for.body."+currFor+", label %for.exit."+currFor);
+    append("\nfor.body."+currFor+":");
+    if(!inConditional)  inConditional=true;
+    forloops.add(currFor);
+    RESULT=currFor;
+:} GO CONDSTMS GC {:
+    Value v=getValue(index).value;
+    append("\nbr label %for.inc."+RESULT);
+    append("\nfor.inc."+RESULT+":");
+    append("\n%"+getId()+" = load i32,i32* "+v.getReg());
+    int k=getCurrentId();
+    append("\n%"+getId()+" = add nsw i32 %"+k+",1");
+    append("\nstore i32 %"+getCurrentId()+",i32* "+v.getReg());
+    append("\nbr label %for.cond."+RESULT);
+    append("\nfor.exit."+RESULT+":");
+    scopes.remove(scopes.size()-1);
+    if(forloops.size()==1) inConditional=false;
+    forloops.remove(forloops.size()-1);
+:} ;
 
 
 COND::= COND:a AND COND:b {:
@@ -1660,7 +1996,10 @@ CONDOP::= LESS {:RESULT=operations.LESS;:} | GREATER {:RESULT=operations.GRT;:} 
 FUNCTION::=FUNCDef:f GO FSTMTS GC {:
     if(!f.returned){
         if(f.retType.equals("void"))    f.functionOutput.append("\nret void");
-        else    System.out.println("Didn't have a return statement and function isn't of type void");
+        else{
+            errorBuffer.append("\nDidn't have a return statement and function isn't of type void");
+            errors++;
+        }
     }
     outputBuffer.append("{"+f.functionOutput+"\n}");
     inFunction=false;
@@ -1671,7 +2010,6 @@ FUNCTION::=FUNCDef:f GO FSTMTS GC {:
 FUNCDef::=FUNC ID:name {:
     inFunction=true;
     functionName=name;
-    System.out.println("Function "+name+" found!");
     Function f=new Function(name);
     functions.put(name,f);
 :} BO PARlist:l BC RETVAL:r{:
@@ -1683,7 +2021,6 @@ FUNCDef::=FUNC ID:name {:
     scopes.add(f.scope);
     if(name.equals("main")) f.functionOutput.append("\ncall void () @globalinit()");
     l.stream().filter(e->!e.arrDim).forEach(e->{
-        System.out.println("Starting parameter "+e.name);
         if(!e.type.inoutNeedsDeref()){
             f.functionOutput.append("\n%"+(++f.regId)+" = alloca "+e.type.irDec());
             Value v=new Value(e.type);
@@ -1693,15 +2030,14 @@ FUNCDef::=FUNC ID:name {:
             else    f.scope.constants.put(e.name,v);
         }
         else{
-            f.functionOutput.append("\n%"+(++f.regId)+" = alloca "+e.type.irDec()+"*");
+            f.functionOutput.append("\n%"+(++f.regId)+" = alloca "+e.type.irDec());
             int reg=f.regId;
-            f.functionOutput.append("\nstore "+e.type.irDec()+"* %"+e.name+", "+e.type.irDec()+"* %"+f.regId);
-            f.functionOutput.append("\n%"+(++f.regId)+" = load "+e.type.irDec()+"*,"+e.type.irDec()+"** %"+f.regId);
+            f.functionOutput.append("\nstore "+e.type.irDec()+" %"+e.name+", "+e.type.irDec()+"* %"+f.regId);
+            f.functionOutput.append("\n%"+(++f.regId)+" = load "+e.type.irDec()+","+e.type.irDec()+"* %"+reg);
             Value v=new Value(e.type);
             v.setReg(f.regId);
             f.scope.variables.put(e.name,v);
         }
-        System.out.println("JUst finished parameter "+e.name+", now output is:\n"+f.functionOutput);
     });
     RESULT=f;
 :};
@@ -1720,7 +2056,6 @@ PARlist::= PARlist:l C PAR:p {:
             pfor.setArrayDim();
             l.add(pfor);
             p.type.addFunctionDimension("dim."+functions.get(functionName).arrayNum+"."+i);
-            System.out.println("NOw dimensions parameters are: "+p.type.dimensionsParameters);
         }
         if(dim>1) functions.get(functionName).arrayNum++;
     }
@@ -1730,7 +2065,6 @@ PARlist::= PARlist:l C PAR:p {:
     l.add(p);
     if(p.type.array){
         int dim=p.type.dimensions.size();
-        System.out.println("Parameter "+p.name+" has "+dim+" dimensions and function has array num:"+ functions.get(functionName).arrayNum);
         for(int i=0;i<dim-1;i++){
             Value x=new Value(32);
             x.setInout(false);
@@ -1739,7 +2073,6 @@ PARlist::= PARlist:l C PAR:p {:
             pfor.setArrayDim();
             l.add(pfor);
             p.type.addFunctionDimension("dim."+functions.get(functionName).arrayNum+"."+i);
-            System.out.println("NOw dimensions parameters are: "+p.type.dimensionsParameters);
         }
         if(dim>1) functions.get(functionName).arrayNum++;
     }
@@ -1766,10 +2099,16 @@ RET::= RETURN EXP:e {:
         f.returned=true;
         getId();
     }
-    else System.out.println("Returning a type that doesn't match with the return type of the function");
+    else{
+        errorBuffer.append("\nReturning a type that doesn't match with the return type of the function");
+        errors++;
+    }
 :} | RETURN {:
     Function f=functions.get(functionName);
-    if(!f.retType.equals("void")) System.out.println("REturning nothing from a non void function");
+    if(!f.retType.equals("void")){
+        errorBuffer.append("\nReturning nothing from a non void function");
+        errors++;
+    }
     else{
         f.functionOutput.append("\nret void");
         f.returned=true;
