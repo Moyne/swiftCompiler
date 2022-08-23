@@ -1,4 +1,4 @@
 default:
 	jflex scanner.jflex
-	java java_cup.Main -expect 110 parser.cup
+	java java_cup.Main -expect 10 parser.cup
 	javac *.java

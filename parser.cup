@@ -5,6 +5,26 @@ import java.lang.Object;
 import java.util.stream.Collectors ;
 import java.lang.Math.*;
 
+init with {:
+    scopes=new ArrayList<Scope>(List.of(new Scope()));
+    outputBuffer=new StringBuffer();
+    errorBuffer=new StringBuffer();
+    globalBuffer=new StringBuffer();
+    globalInitializations=new StringBuffer();
+    globalInitializationsId=0;
+    errors=0;
+    functions=new HashMap<String,Function>();
+    regid=0;
+    stringIndex=(-1);
+    inFunction=false;
+    currentIf=0;
+    currentFor=0;
+    inConditional=false;
+    callingFunction=new ArrayList<String>();
+    callingFunctionPar=new ArrayList<Integer>();
+    forloops=new ArrayList<Integer>();
+:};
+
 parser code {:
     public enum operations{
         ADD,
@@ -173,23 +193,26 @@ parser code {:
             if(this.last) return 1;
             else return this.arraysInside.get(0).level();
         }
-        public String printValue(){
+        public String printValue(String type){
             StringBuffer res=new StringBuffer();
-            res.append("[");
             if(this.last){
+                res.append(this.type);
+                res.append(" [");
                 for(int i=0;i<value.size();i++){
-                    res.append(value.get(i).immediateValue);
+                    res.append(value.get(i).type+" "+value.get(i).immediateValue);
                     if(i!=value.size()-1) res.append(",");
                 }
-                res.append("]");
+                res.append("] ");
                 return res.toString();
             }
             else{
+                if(!type.equals(this.type)) res.append(this.type);
+                res.append(" [");
                 for(int i=0;i<arraysInside.size();i++){
-                    res.append(arraysInside.get(i).printValue());
+                    res.append(arraysInside.get(i).printValue(type));
                     if(i!=arraysInside.size()-1) res.append(",");
                 }
-                res.append("]");
+                res.append(" ]");
                 return res.toString();
             }
         }
@@ -211,39 +234,16 @@ parser code {:
         }
     }
     public class Value{
-        public boolean integer=false;
-        public boolean str=false;
-        public boolean array=false;
-        public boolean doub=false;
-        public boolean classRef=false;
-        public boolean funcPar=false;
-        public boolean initialized;
-        public boolean primitive;
-        public boolean inoutPar=false;
-        public int sizeInt=0;
-        public int pointerAllocated=(-1);
-        public boolean global=false;
+        public boolean integer=false,str=false,array=false,doub=false,funcPar=false,inoutPar=false,global=false;
+        public boolean initialized,primitive;
+        public int sizeInt=0,pointerAllocated=(-1);
         public String name;
         public ArrayList<String> dimensionsParameters=new ArrayList<String>();
         public ArrayList<Integer> dimensions=new ArrayList<Integer>();
         public Object immediateInitialization;
         //copy of already existing value
         public Value(Value o){
-            this.integer=o.integer;
-            this.str=o.str;
-            this.doub=o.doub;
-            this.array=o.array;
-            this.classRef=o.classRef;
-            this.sizeInt=o.sizeInt;
-            this.funcPar=o.funcPar;
-            this.initialized=o.initialized;
-            this.primitive=o.primitive;
-            this.inoutPar=o.inoutPar;
-            this.dimensionsParameters=o.dimensionsParameters;
-            this.dimensions=o.dimensions;
-            this.immediateInitialization=o.immediateInitialization;
-            this.pointerAllocated=o.pointerAllocated;
-            this.global=o.global;
+            this.integer=o.integer;this.str=o.str;this.doub=o.doub;this.array=o.array;this.sizeInt=o.sizeInt;this.funcPar=o.funcPar;this.initialized=o.initialized;this.primitive=o.primitive;this.inoutPar=o.inoutPar;this.dimensionsParameters=o.dimensionsParameters;this.dimensions=o.dimensions;this.immediateInitialization=o.immediateInitialization;this.pointerAllocated=o.pointerAllocated;this.global=o.global;
         }
         public Value(String type){
             if(type.equals("i32")){
@@ -349,25 +349,24 @@ parser code {:
             return this.irDec() +" with reg:"+this.getReg();
         }
     }
-    public Scope globalScope=new Scope();
-    public ArrayList<Scope> scopes=new ArrayList<Scope>();
-    public StringBuffer outputBuffer=new StringBuffer();
-    public StringBuffer errorBuffer=new StringBuffer();
-    public StringBuffer globalBuffer=new StringBuffer();
-    public StringBuffer globalInitializations=new StringBuffer();
-    public int globalInitializationsId=0;
-    public int errors=0;
-    public HashMap<String,Function> functions=new HashMap<String,Function>();
-    public int regid=0;
-    public int stringIndex=(-1);
-    public boolean inFunction=false;
+    public ArrayList<Scope> scopes;
+    public StringBuffer outputBuffer;
+    public StringBuffer errorBuffer;
+    public StringBuffer globalBuffer;
+    public StringBuffer globalInitializations;
+    public int globalInitializationsId;
+    public int errors;
+    public HashMap<String,Function> functions;
+    public int regid;
+    public int stringIndex;
+    public boolean inFunction;
     public String functionName;
-    public int currentIf=0;
-    public int currentFor=0;
-    public boolean inConditional=false;
-    public ArrayList<String> callingFunction=new ArrayList<String>();
-    public ArrayList<Integer> callingFunctionPar=new ArrayList<Integer>();
-    public ArrayList<Integer> forloops=new ArrayList<Integer>();
+    public int currentIf;
+    public int currentFor;
+    public boolean inConditional;
+    public ArrayList<String> callingFunction;
+    public ArrayList<Integer> callingFunctionPar;
+    public ArrayList<Integer> forloops;
     public void append(String x){
         if(inFunction)  functions.get(functionName).functionOutput.append(x);
         else{
@@ -511,6 +510,28 @@ parser code {:
         }
         else return "ERROR";
     }
+    public void semError(String message){
+        errorBuffer.append("\n(semantic error at line: "+getLine()+",column:"+getColumn()+"):"+message);
+        errors++;
+    }
+    public int getLine() {
+        if (((Symbol)stack.elementAt(tos)).left != -1){
+            return ((Symbol)stack.elementAt(tos)).left+1;
+        }else return -1;
+    }
+
+    public int getColumn() {
+        if (((Symbol)stack.elementAt(tos)).left != -1){
+            return ((Symbol)stack.elementAt(tos)).right+1;
+        }else return -1;
+    }
+
+    public Object stack(int position) {
+        return (((Symbol)stack.elementAt(tos+position)).value);
+    }
+:};
+
+action code{:
     public void report_error(String message, Object info) {
         if (info instanceof Symbol)
             if (((Symbol)info).left != -1){
@@ -520,10 +541,6 @@ parser code {:
             } else System.err.print(": ");
         else System.err.print(": ");
     }
-:};
-
-action code{:
-    
 :};
 
 terminal LET,VAR,DOUBLEVAL,INTVAL;
@@ -560,10 +577,10 @@ precedence left uminus;
 
 start with PROG;
 
-PROG::= {:scopes.add(globalScope);:} STMS {:
+PROG::= STMS {:
     if(errors==0)   System.out.println(";DEPENDENCY DECLARATIONS\ndeclare i32 @printf(i8*, ...)\ndeclare i32 @sprintf(i8*,i8*, ...)\ndeclare i8* @strcat(i8*,i8*)\ndeclare i8* @strcpy(i8*,i8*)\n@.str.newline = constant [2 x i8] c\"\\0A\\00\"\n@.str.int = constant [3 x i8] c\"%d\\00\"\n@.str.double = constant [4 x i8] c\"%lf\\00\"\n@.str.space = constant [2 x i8] c\" \\00\"\n;GLOBAL DECLARATIONS\n"
 +globalBuffer+"\n;GLOBAL INITIALIZATIONS OF GLOBAL VARIABLES THAT ARE STRINGS OR ARRAYS OF STRINGS\ndefine void @globalinit(){"+globalInitializations+"\nret void\n}\n"+outputBuffer+"\n");
-    else System.out.println("There were "+errors+"errors, here there are:\n"+ errorBuffer);
+    else System.err.println("There were "+errors+"errors, here there are:\n"+ errorBuffer);
 :} ;
 
 //declarations of variables
@@ -576,16 +593,13 @@ l.forEach(a->{
                 ArrayDec dec=(ArrayDec) t.immediateInitialization;
                 String base=dec.getBaseType();
                 if(dec.allImmediates){
-                    if(base.equals("double") || base.equals("i32")) globalBuffer.append("\n@"+a+" = global "+dec.type+" "+dec.printValue());
+                    if(base.equals("double") || base.equals("i32")) globalBuffer.append("\n@"+a+" = global "+dec.type+" "+dec.printValue(dec.type));
                     else{
                         globalBuffer.append("\n@"+a+" = global "+dec.type+" zeroinitializer");
                         storeGlobalRowStrings(a,dec);
                     }
                 }
-                else{
-                    errorBuffer.append("\nCannot initialize a global variable that doesn't have static values");
-                    errors++;
-                }
+                else    semError("Cannot initialize a global variable that doesn't have static values");
             }
             else{
                 Attribute att=(Attribute) t.immediateInitialization;
@@ -639,16 +653,13 @@ l.forEach(a->{
                 ArrayDec dec=(ArrayDec) t.immediateInitialization;
                 String base=dec.getBaseType();
                 if(dec.allImmediates){
-                    if(base.equals("double") || base.equals("i32")) globalBuffer.append("\n@"+a+" = global "+dec.type+" "+dec.printValue());
+                    if(base.equals("double") || base.equals("i32")) globalBuffer.append("\n@"+a+" = global "+dec.type+" "+dec.printValue(dec.type));
                     else{
                         globalBuffer.append("\n@"+a+" = global "+dec.type+" zeroinitializer");
                         storeGlobalRowStrings(a,dec);
                     }
                 }
-                else{
-                    errorBuffer.append("\nCannot initialize a global variable that doesn't have static values");
-                    errors++;
-                }
+                else    semError("Cannot initialize a global variable that doesn't have static values");
             }
             else{
                 Attribute att=(Attribute) t.immediateInitialization;
@@ -715,29 +726,55 @@ IDINITlist::= IDINITlist:l C INIT:i {:
     RESULT=res;
 :};
 
-INIT::= ID:i EQ VAL:l {:
-    if(inFunction){
-        int id=getId();
-        append("\n%"+id+"= alloca "+l.type+",align 4");
-        append("\nstore "+l.type+" "+l.getReg()+","+l.type+"* %"+id);
-        Value v=new Value(l.type);
-        v.setImmediateInit(l);
-        v.setReg(id);
-        RESULT=new Tuple(i,v);
+INIT::= ID:i EQ EXP:l {:
+    if(l!=null){
+        if(l.type.equals("i32") || l.type.equals("double") || l.type.equals("i8*")){
+            if(inFunction){
+                int id=getId();
+                append("\n%"+id+"= alloca "+l.type+",align 4");
+                if(l.type.equals("i8*")){
+                    append("\n%"+getId()+"= alloca [200 x i8]");
+                    int idStr=getCurrentId();
+                    append("\n%"+getId()+"= getelementptr inbounds [200 x i8],[200 x i8]* %"+idStr+",i32 0,i32 0");
+                    int strPoint=getCurrentId();
+                    append("\n%"+getId()+"= call i8* (i8*,i8*) @strcpy(i8* %"+strPoint+",i8* "+l.getReg()+")");
+                    append("\nstore i8* %"+strPoint+",i8** %"+id);
+                }
+                else append("\nstore "+l.type+" "+l.getReg()+","+l.type+"* %"+id);
+                Value v=new Value(l.type);
+                v.setImmediateInit(l);
+                v.setReg(id);
+                RESULT=new Tuple(i,v);
+            }
+            else{
+                if(l.type.equals("i8*") && l.immediate){
+                    globalBuffer.append("\n@"+i+".arr = global [200 x i8] zeroinitializer");
+                    globalBuffer.append("\n@"+i+" = global i8* getelementptr inbounds([200 x i8],[200 x i8]* @"+i+".arr,i32 0,i32 0)");
+                    globalInitializations.append("\n%"+(++globalInitializationsId)+" load i8*,i8** @"+i);
+                    int strptr=globalInitializationsId;
+                    globalInitializations.append("\n%"+(++globalInitializationsId)+" = call i8* (i8*,i8*) @strcpy(i8* %"+strptr+",i8* %"+l.regId+")");
+                    Value v=new Value(l.type);
+                    v.setImmediateInit(l);
+                    v.setReg(i);
+                    RESULT=new Tuple(i,v);
+                }
+                else if(l.immediate){
+                    globalBuffer.append("\n@"+i+" = global "+l.type+" "+l.getReg());
+                    Value v=new Value(l.type);
+                    v.setImmediateInit(l);
+                    v.setReg(i);
+                    RESULT=new Tuple(i,v);
+                }
+                else{
+                    semError("Cannot initialize a global variable that doesn't have static values");
+                    RESULT=null;
+                }
+            }
+        }
     }
     else{
-        if(l.immediate){
-            globalBuffer.append("\n@"+i+" = global "+l.type+" "+l.getReg());
-            Value v=new Value(l.type);
-            v.setImmediateInit(l);
-            v.setReg(i);
-            RESULT=new Tuple(i,v);
-        }
-        else{
-            errorBuffer.append("\nCannot initialize a global variable that doesn't have static values");
-            errors++;
-            RESULT=null;
-        }
+        semError("Cannot initialize an array in this way, arrays can be initialized only at declaration time statically");
+        RESULT=null;
     }
 :} | ID:i EQ ARRVALE:l {:
     if(inFunction){
@@ -752,8 +789,13 @@ INIT::= ID:i EQ VAL:l {:
         RESULT=new Tuple(i,v);
     }
     else{
+        String base=l.getBaseType();
         if(l.allImmediates){
-            globalBuffer.append("\n@"+i+" = global "+l.type+" "+l.printValue());
+            if(base.equals("double") || base.equals("i32")) globalBuffer.append("\n@"+i+" = global "+l.type+" "+l.printValue(l.type));
+            else{
+                globalBuffer.append("\n@"+i+" = global "+l.type+" zeroinitializer");
+                storeGlobalRowStrings(i,l);
+            }
             Value v=new Value(l.getBaseType());
             ArrayList<Integer> dimensions=l.getDimensions();
             dimensions.forEach(e->v.addArrLevel(e));
@@ -762,8 +804,7 @@ INIT::= ID:i EQ VAL:l {:
             RESULT=new Tuple(i,v);
         }
         else{
-            errorBuffer.append("\nCannot initialize a global variable that doesn't have static values");
-            errors++;
+            semError("Cannot initialize a global variable that doesn't have static values");
             RESULT=null;
         }
     }
@@ -771,6 +812,10 @@ INIT::= ID:i EQ VAL:l {:
 
 TYPE::= COL TList:t {:RESULT=t;:}| COL TList:t EQ VAL:v {:
     t.setImmediateInit(v);
+    RESULT=t;
+:} | COL TList:t EQ MINUS VAL:v {:
+    if(v.type.equals("i32")) t.setImmediateInit(new Attribute(-((int)v.immediateValue),"i32"));
+    else if(v.type.equals("double")) t.setImmediateInit(new Attribute(-((double)v.immediateValue),"double"));
     RESULT=t;
 :} | COL TList:t EQ ARRVALE:l {:
     t.setArrDimensions(l.getDimensions());
@@ -781,36 +826,76 @@ TYPE::= COL TList:t {:RESULT=t;:}| COL TList:t EQ VAL:v {:
 VAL::= DOUBLEVAL:v {:RESULT=new Attribute(v,"double");:}| INTVAL:v {:RESULT=new Attribute(v,"i32");:}| STR:v {:RESULT=v;:};
 
 STR::= STRINGVAL:s {:
-    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(s.length()+1)+" x i8] c\""+s+"\\00\"");
+    int len=s.length()+1;
+    int indexs=0;
+    while(indexs!=(-1)){
+        if(indexs!=0){
+            len--;
+            indexs+=2;
+        }
+        indexs=s.indexOf("\\n",indexs);
+    }
+    s=s.replace("\\n", "\\0A");
+    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+len+" x i8] c\""+s+"\\00\"");
     int id;
     if(inFunction){
-        append("\n%"+getId()+" = getelementptr inbounds ["+(s.length()+1)+" x i8], ["+(s.length()+1)+" x i8]* @.str."+stringIndex+" , i32 0, i32 0");
+        append("\n%"+getId()+" = getelementptr inbounds ["+len+" x i8], ["+len+" x i8]* @.str."+stringIndex+" , i32 0, i32 0");
         RESULT=new Attribute("i8*",getCurrentId());
     }
     else{
-        globalInitializations.append("\n%"+(++globalInitializationsId)+" = getelementptr inbounds ["+(s.length()+1)+" x i8], ["+(s.length()+1)+" x i8]* @.str."+stringIndex+" , i32 0, i32 0");
+        globalInitializations.append("\n%"+(++globalInitializationsId)+" = getelementptr inbounds ["+len+" x i8], ["+len+" x i8]* @.str."+stringIndex+" , i32 0, i32 0");
         Attribute att=new Attribute("i8*",globalInitializationsId);
         att.immediate=true;
         RESULT=att;
     }
 :}| STRINGVALS:s STRINGVALINTERP:i STRINGVALE:e{:
-    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(s.length()+1)+" x i8] c\""+s+"\\00\"");
-    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(e.length()+1)+" x i8] c\""+e+"\\00\"");
+    int lens=s.length()+1;
+    int indexs=0;
+    while(indexs!=(-1)){
+        if(indexs!=0){
+            lens--;
+            indexs+=2;
+        }
+        indexs=s.indexOf("\\n",indexs);
+    }
+    s=s.replace("\\n", "\\0A");
+    int lene=e.length()+1;
+    int indexe=0;
+    while(indexe!=(-1)){
+        if(indexe!=0){
+            lene--;
+            indexe+=2;
+        }
+        indexe=e.indexOf("\\n",indexe);
+    }
+    e=e.replace("\\n", "\\0A");
+    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+lens+" x i8] c\""+s+"\\00\"");
+    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+lene+" x i8] c\""+e+"\\00\"");
     int stringArrPointer;
     int stringGepPointer;
     append("\n%"+getId()+" = alloca [200 x i8], align 1");
     stringArrPointer=getCurrentId();
     append("\n%"+getId()+" = getelementptr inbounds [200 x i8], [200 x i8]* %"+stringArrPointer+" , i32 0, i32 0");
     stringGepPointer=getCurrentId();
-    append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+(s.length()+1)+" x i8], ["+(s.length()+1)+" x i8]* @.str."+(stringIndex-1)+", i32 0, i32 0))");
+    append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+lens+" x i8], ["+lens+" x i8]* @.str."+(stringIndex-1)+", i32 0, i32 0))");
     append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* %"+i+")");
-    append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+(e.length()+1)+" x i8], ["+(e.length()+1)+" x i8]* @.str."+stringIndex+" , i32 0, i32 0))");
+    append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+lene+" x i8], ["+lene+" x i8]* @.str."+stringIndex+" , i32 0, i32 0))");
     RESULT=new Attribute("i8*",stringGepPointer);
 :};
 
 STRINGVALINTERP::= STRINGVALINTERP:i STRINGVALI:s EXP:e {:
     int expPointer,expGep,finalArrPointer,finalGepPointer;
-    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+(s.length()+1)+" x i8] c\""+s+"\\00\"");
+    int len=s.length()+1;
+    int indexs=0;
+    while(indexs!=(-1)){
+        if(indexs!=0){
+            len--;
+            indexs+=2;
+        }
+        indexs=s.indexOf("\\n",indexs);
+    }
+    s=s.replace("\\n", "\\0A");
+    globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+len+" x i8] c\""+s+"\\00\"");
     append("\n%"+getId()+" = alloca [200 x i8], align 1");
     finalArrPointer=getCurrentId();
     append("\n%"+getId()+" = alloca [20 x i8], align 1");
@@ -821,8 +906,7 @@ STRINGVALINTERP::= STRINGVALINTERP:i STRINGVALI:s EXP:e {:
         if(e.type.equals("i32"))   append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+expGep+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 "+e.getReg()+")");
         else if(e.type.equals("double"))   append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+expGep+",i8* getelementptr inbounds([4 x i8], [4 x i8]* @.str.double, i32 0, i32 0), double "+e.getReg()+")");
         else{
-            errors++;
-            errorBuffer.append("\nString interpolation is allowed only with expressions that are either doubles or integers");
+            semError("String interpolation is allowed only with expressions that are either doubles or integers");
             append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+expGep+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 -1)");
         }
     }
@@ -830,7 +914,7 @@ STRINGVALINTERP::= STRINGVALINTERP:i STRINGVALI:s EXP:e {:
     append("\n%"+getId()+" = getelementptr inbounds [200 x i8],[200 x i8]* %"+finalArrPointer+",i32 0,i32 0");
     finalGepPointer=getCurrentId();
     append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+finalGepPointer+",i8* %"+i+")");
-    append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+finalGepPointer+",i8* getelementptr inbounds (["+(s.length()+1)+" x i8], ["+(s.length()+1)+" x i8]* @.str."+stringIndex+",i32 0,i32 0))");
+    append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+finalGepPointer+",i8* getelementptr inbounds (["+len+" x i8], ["+len+" x i8]* @.str."+stringIndex+",i32 0,i32 0))");
     append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+finalGepPointer+",i8* %"+expGep+")");
     RESULT=finalGepPointer;
 :}| EXP:e {:
@@ -844,8 +928,7 @@ STRINGVALINTERP::= STRINGVALINTERP:i STRINGVALI:s EXP:e {:
         if(e.type.equals("i32"))   append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 "+e.getReg()+")");
         else if(e.type.equals("double"))   append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([4 x i8], [4 x i8]* @.str.double, i32 0, i32 0), double "+e.getReg()+")");
         else{
-            errors++;
-            errorBuffer.append("\nString interpolation is allowed only with expressions that are either doubles or integers");
+            semError("String interpolation is allowed only with expressions that are either doubles or integers");
             append("\n%"+getId()+" = call i32 (i8*,i8*, ...) @sprintf(i8* %"+stringGepPointer+",i8* getelementptr inbounds([3 x i8], [3 x i8]* @.str.int, i32 0, i32 0), i32 -1)");
         }
     }
@@ -897,10 +980,7 @@ HEXPL::= HEXPL:l C EXP:e {:
 EXPL::= EXPL:l C EXP:e {:
     if(e!=null){
         if(l.get(l.size()-1).type.equals(e.type)) l.add(e);
-        else{
-            errors++;
-            errorBuffer.append("\nCannot have heterogenous arrays");
-        }
+        else    semError("Cannot have heterogenous arrays");
     }
     RESULT=l;
 :} | EXP:e {:
@@ -923,8 +1003,7 @@ ASS::= ID:a EQ EXP:e {:
     Value v=null;
     if(t!=null){
         if(t.value.initialized && t.name.equals("let")){
-            errorBuffer.append("\nConstant "+a+" has already been assigned");
-            errors++;
+            semError("Constant "+a+" has already been assigned");
             RESULT=null;
         }
         else    v=t.value;
@@ -933,10 +1012,7 @@ ASS::= ID:a EQ EXP:e {:
     else{
         String type=v.irDec();
         if(v.inoutPar && !v.array)  type=v.getBaseType();
-        if(!e.type.equals(type)){
-            errors++;
-            errorBuffer.append("\nType mismatch in assignment, a has type "+type+", while e has type "+e.type);
-        }
+        if(!e.type.equals(type))    semError("Type mismatch in assignment, a has type "+type+", while e has type "+e.type);
     //System.out.println("\n\tInside ASSIGNMENT;  with exp: "+e.type+" and id of type: "+type);
         else if(e.type.equals("i8*")){
             append("\n%"+getId()+"= load i8*,i8** "+v.getReg());
@@ -951,29 +1027,27 @@ ASS::= ID:a EQ EXP:e {:
     }
 :} | IDARR:a EQ EXP:e {:
     if(a==null || e==null)  RESULT=null;
-    Tuple t=getValue(a.associatedVarName);
-    Value v=null;
-    if(t!=null){
-        if(t.name.equals("let") && t.value.initialized){
-            errorBuffer.append("\nConstant "+a.associatedVarName+" has already been assigned");
-            errors++;
-            RESULT=null;
-        }
-        else v=t.value;
-    }
-    if(v==null) RESULT=null;
-    else if(!e.type.equals(a.type)){
-        errors++;
-        errorBuffer.append("\nType mismatch in assignment");
-    }
     else{
-        if(e.type.equals("i8*")){
-            append("\n%"+getId()+"= load i8*,i8** "+a.getReg());
-            int idA=getCurrentId();
-            append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idA+",i8* "+e.getReg()+")");
+        Tuple t=getValue(a.associatedVarName);
+        Value v=null;
+        if(t!=null){
+            if(t.name.equals("let") && t.value.initialized){
+                semError("Constant "+a.associatedVarName+" has already been assigned");
+                RESULT=null;
+            }
+            else v=t.value;
         }
+        if(v==null) RESULT=null;
+        else if(!e.type.equals(a.type)) semError("Type mismatch in assignment");
         else{
-            append("\nstore "+e.type+" "+e.getReg()+","+e.type+"* "+a.getReg());
+            if(e.type.equals("i8*")){
+                append("\n%"+getId()+"= load i8*,i8** "+a.getReg());
+                int idA=getCurrentId();
+                append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idA+",i8* "+e.getReg()+")");
+            }
+            else{
+                append("\nstore "+e.type+" "+e.getReg()+","+e.type+"* "+a.getReg());
+            }
         }
     }
 :} | ID:a OP:op EQ EXP:e {:
@@ -981,21 +1055,18 @@ ASS::= ID:a EQ EXP:e {:
     Value v=null;
     if(t!=null){
         if(t.name.equals("let")){
-            errorBuffer.append("\nConstants like "+a+" cannot be used with += -= *= /= operators");
-            errors++;
+            semError("Constants like "+a+" cannot be used with += -= *= /= operators");
             RESULT=null;
         }
         else v=t.value;
     }
     if(v==null || e==null) RESULT=null;
     else if(!v.initialized){
-        errorBuffer.append("\nVariable "+a+" hasn't been initialized yet so it cannot be used with += -= *= /= operators");
-        errors++;
+        semError("Variable "+a+" hasn't been initialized yet so it cannot be used with += -= *= /= operators");
         RESULT=null;
     }
     else if(!e.type.equals(v.irDec())){
-        errors++;
-        errorBuffer.append("\nType mismatch in assignment");
+        semError("Type mismatch in assignment");
         RESULT=null;
     }
     //System.out.println("\n\tInside ASSIGNMENT;  with exp: "+e.type+" and id of type: "+type);
@@ -1013,7 +1084,7 @@ ASS::= ID:a EQ EXP:e {:
                 append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+idPointer+",i8* "+e.getReg()+")");
                 append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idA+",i8* %"+idPointer+")");
             }
-            else errorBuffer.append("\nonly operation allowed on string is the add");
+            else semError("only operation allowed on string is the add");
         }
         else{
             int id;
@@ -1025,51 +1096,48 @@ ASS::= ID:a EQ EXP:e {:
     }
 :} | IDARR:a OP:op EQ EXP:e {:
     if(a==null || e==null)  RESULT=null;
-    Tuple t=getValue(a.associatedVarName);
-    Value v=null;
-    if(t!=null){
-        if(t.name.equals("let")){
-            errorBuffer.append("\nConstants like "+a.associatedVarName+" cannot be used with += -= *= /= operators");
-            errors++;
-            RESULT=null;
-        }
-        else{
-            v=t.value;
-            if(!t.value.initialized){
-                errorBuffer.append("\nVariable "+a.associatedVarName+" hasn't ben assigned yet");
-                errors++;
-                v=null;
+    else{
+        Tuple t=getValue(a.associatedVarName);
+        Value v=null;
+        if(t!=null){
+            if(t.name.equals("let")){
+                semError("Constants like "+a.associatedVarName+" cannot be used with += -= *= /= operators");
                 RESULT=null;
             }
-        }
-    }
-    if(v==null) RESULT=null;
-    else if(!e.type.equals(a.type)){
-        errors++;
-        errorBuffer.append("\nType mismatch in assignment");
-    }
-    else{
-        String type=a.type;
-        if(type.equals("i8*")){
-            if(op==operations.ADD){
-                append("\n%"+getId()+"= alloca [200 x i8]");
-                int newArr=getCurrentId();
-                append("\n%"+getId()+"= getelementptr inbounds [200 x i8],[200 x i8]* %"+newArr+",i32 0, i32 0");
-                int idPointer=getCurrentId();
-                append("\n%"+getId()+"= load i8*,i8** "+a.getReg());
-                int idA=getCurrentId();
-                append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idPointer+",i8* %"+idA+")");
-                append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+idPointer+",i8* "+e.getReg()+")");
-                append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idA+",i8* %"+idPointer+")");
+            else{
+                v=t.value;
+                if(!t.value.initialized){
+                    semError("Variable "+a.associatedVarName+" hasn't ben assigned yet");
+                    v=null;
+                    RESULT=null;
+                }
             }
-            else errorBuffer.append("\nonly operation allowed on string is the add");
         }
+        if(v==null) RESULT=null;
+        else if(!e.type.equals(a.type)) semError("Type mismatch in assignment");
         else{
-            int id;
-            append("\n%"+getId()+"= load "+type+","+type+"* "+a.getReg());
-            id=getCurrentId();
-            append("\n%"+getId()+" = "+getIrOp(op,e.type)+" "+e.type+" %"+id+","+e.getReg());
-            append("\nstore "+e.type+" %"+getCurrentId()+","+e.type+"* "+a.getReg());
+            String type=a.type;
+            if(type.equals("i8*")){
+                if(op==operations.ADD){
+                    append("\n%"+getId()+"= alloca [200 x i8]");
+                    int newArr=getCurrentId();
+                    append("\n%"+getId()+"= getelementptr inbounds [200 x i8],[200 x i8]* %"+newArr+",i32 0, i32 0");
+                    int idPointer=getCurrentId();
+                    append("\n%"+getId()+"= load i8*,i8** "+a.getReg());
+                    int idA=getCurrentId();
+                    append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idPointer+",i8* %"+idA+")");
+                    append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+idPointer+",i8* "+e.getReg()+")");
+                    append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idA+",i8* %"+idPointer+")");
+                }
+                else semError("only operation allowed on string is the add");
+            }
+            else{
+                int id;
+                append("\n%"+getId()+"= load "+type+","+type+"* "+a.getReg());
+                id=getCurrentId();
+                append("\n%"+getId()+" = "+getIrOp(op,e.type)+" "+e.type+" %"+id+","+e.getReg());
+                append("\nstore "+e.type+" %"+getCurrentId()+","+e.type+"* "+a.getReg());
+            }
         }
     }
 :};
@@ -1086,23 +1154,11 @@ CPAR::= ID:name COL EXP:e {:
     if(e==null || f==null || p==null) RESULT=null;
     else{
         if(p.argLabel){
-            if(!p.label.equals(name)){
-                errorBuffer.append("\nExpected "+p.label+" as the label for the parameter instead received "+name);
-                errors++;
-            }
+            if(!p.label.equals(name))   semError("Expected "+p.label+" as the label for the parameter instead received "+name);
         }
-        else{
-            errorBuffer.append("\nDidn't expect a label for the parameter instead received "+name);
-            errors++;
-        }
-        if(p.type.inoutPar){
-            errorBuffer.append("\nExpected an inout parameter, use the & operator");
-            errors++;
-        }
-        if(!p.type.irDec().equals(e.type)){
-            errorBuffer.append("\nType mismatch in parameter passing");
-            errors++;
-        }
+        else    semError("Didn't expect a label for the parameter instead received "+name);
+        if(p.type.inoutPar) semError("Expected an inout parameter, use the & operator");
+        if(!p.type.irDec().equals(e.type))  semError("Type mismatch in parameter passing");
         RESULT=e;
     }
 :} | EXP:e {:
@@ -1116,18 +1172,9 @@ CPAR::= ID:name COL EXP:e {:
     }
     if(e==null || f==null || p==null) RESULT=null;
     else{
-        if(p.argLabel){
-            errorBuffer.append("\nExpected "+p.label+" as the label for the parameter instead the label is missing");
-            errors++;
-        }
-        if(p.type.inoutPar){
-            errorBuffer.append("\nExpected an inout parameter, use the & operator");
-            errors++;
-        }
-        if(!p.type.irDec().equals(e.type)){
-            errorBuffer.append("\nType mismatch in parameter passing p has type: "+p.type.irDec()+", while e has type "+e.type);
-            errors++;
-        }
+        if(p.argLabel)  semError("Expected "+p.label+" as the label for the parameter instead the label is missing");
+        if(p.type.inoutPar) semError("Expected an inout parameter, use the & operator");
+        if(!p.type.irDec().equals(e.type))  semError("Type mismatch in parameter passing p has type: "+p.type.irDec()+", while e has type "+e.type);
         RESULT=e;
     }
 :} | DEREF:d EXP:e {:
@@ -1141,22 +1188,10 @@ CPAR::= ID:name COL EXP:e {:
     }
     if(e==null || f==null || p==null) RESULT=null;
     else{
-        if(p.argLabel){
-            errorBuffer.append("\nExpected "+p.label+" as the label for the parameter instead the label is missing");
-            errors++;
-        }
-        if(!p.type.inoutPar){
-            errorBuffer.append("\nTrying to dereferenciate while the parameter is not inout");
-            errors++;
-        }
-        if(e.associatedVarName==null){
-            errorBuffer.append("\nAn inout parameter must be always a variable");
-            errors++;
-        }
-        if(!p.type.irDec().equals(e.type)){
-            errorBuffer.append("\nType mismatch in parameter passing, expected "+p.type.irDec()+", and receiving "+e.type);
-            errors++;
-        }
+        if(p.argLabel)  semError("Expected "+p.label+" as the label for the parameter instead the label is missing");
+        if(!p.type.inoutPar)    semError("Trying to dereferenciate while the parameter is not inout");
+        if(e.associatedVarName==null)   semError("An inout parameter must be always a variable");
+        if(!p.type.irDec().equals(e.type))  semError("Type mismatch in parameter passing, expected "+p.type.irDec()+", and receiving "+e.type);
         RESULT=e;
     }
 :} | ID:name COL DEREF EXP:e {:
@@ -1171,27 +1206,12 @@ CPAR::= ID:name COL EXP:e {:
     if(e==null || f==null || p==null) RESULT=null;
     else{
         if(p.argLabel){
-            if(!p.label.equals(name)){
-                errorBuffer.append("\nExpected "+p.label+" as the label for the parameter instead received "+name);
-                errors++;
-            }
+            if(!p.label.equals(name))   semError("Expected "+p.label+" as the label for the parameter instead received "+name);
         }
-        else{
-            errorBuffer.append("\nDidn't expect a label for the parameter instead received "+name);
-            errors++;
-        }
-        if(!p.type.inoutPar){
-            errorBuffer.append("\nTrying to dereferenciate while the parameter is not inout");
-            errors++;
-        }
-        if(e.associatedVarName==null){
-            errorBuffer.append("\nAn inout parameter must be always a variable");
-            errors++;
-        }
-        if(!p.type.irDec().equals(e.type)){
-            errorBuffer.append("\nType mismatch in parameter passing");
-            errors++;
-        }
+        else    semError("Didn't expect a label for the parameter instead received "+name);
+        if(!p.type.inoutPar)    semError("Trying to dereferenciate while the parameter is not inout");
+        if(e.associatedVarName==null)   semError("An inout parameter must be always a variable");
+        if(!p.type.irDec().equals(e.type))  semError("Type mismatch in parameter passing");
         RESULT=e;
     }
 :};
@@ -1199,13 +1219,11 @@ CPAR::= ID:name COL EXP:e {:
 EXP::= EXP:e PLUS EXP:a {:
     if(e==null || a==null)  RESULT=null;
     else if(!e.type.equals(a.type)){
-        errors++;
-        errorBuffer.append("\nType mismatch in assignment, e has type "+e.type+",while a has type "+a.type);
+        semError("Type mismatch in assignment, e has type "+e.type+",while a has type "+a.type);
         RESULT=e;
     }
     else if(!e.type.equals("double") && !e.type.equals("i32") && !e.type.equals("i8*")){
-        errorBuffer.append("\nCan do substractions only on integeres,strings and doubles!");
-        errors++;
+        semError("Can do substractions only on integeres,strings and doubles!");
         RESULT=e;
     }
     else{
@@ -1237,13 +1255,11 @@ EXP::= EXP:e PLUS EXP:a {:
 :}| EXP:e MINUS EXP:a {:
     if(e==null || a==null)  RESULT=null;
     else if(!e.type.equals(a.type)){
-        errors++;
-        errorBuffer.append("\nType mismatch in assignment, e has type "+e.type+",while a has type "+a.type);
+        semError("Type mismatch in assignment, e has type "+e.type+",while a has type "+a.type);
         RESULT=e;
     }
     else if(!e.type.equals("double") && !e.type.equals("i32")){
-        errorBuffer.append("\nCan do substractions only on integeres and doubles!");
-        errors++;
+        semError("Can do substractions only on integeres and doubles!");
         RESULT=e;
     }
     else{
@@ -1262,13 +1278,11 @@ EXP::= EXP:e PLUS EXP:a {:
 :} | EXP:e MUL EXP:a {:
     if(e==null || a==null)  RESULT=null;
     else if(!e.type.equals(a.type)){
-        errors++;
-        errorBuffer.append("\nType mismatch in assignment, e has type "+e.type+",while a has type "+a.type);
+        semError("Type mismatch in assignment, e has type "+e.type+",while a has type "+a.type);
         RESULT=e;
     }
     else if(!e.type.equals("double") && !e.type.equals("i32")){
-        errorBuffer.append("\nCan do multiplications only on integeres and doubles!");
-        errors++;
+        semError("Can do multiplications only on integeres and doubles!");
         RESULT=e;
     }
     else{
@@ -1287,13 +1301,11 @@ EXP::= EXP:e PLUS EXP:a {:
 :} | EXP:e DIV EXP:a {:
     if(e==null || a==null)  RESULT=null;
     else if(!e.type.equals(a.type)){
-        errors++;
-        errorBuffer.append("\nType mismatch in assignment, e has type "+e.type+",while a has type "+a.type);
+        semError("Type mismatch in assignment, e has type "+e.type+",while a has type "+a.type);
         RESULT=e;
     }
     else if(!e.type.equals("double") && !e.type.equals("i32")){
-        errorBuffer.append("\nCan do divisions only on integeres and doubles!");
-        errors++;
+        semError("Can do divisions only on integeres and doubles!");
         RESULT=e;
     }
     else{
@@ -1313,16 +1325,21 @@ EXP::= EXP:e PLUS EXP:a {:
 | MINUS EXP:e {:
     if(e!=null){
         if(e.type.equals("i32")){
-            append("\n%"+getId()+" = sub i32 0,"+e.getReg());
-            RESULT=new Attribute(e.type,getCurrentId());
+            if(e.immediate) RESULT=new Attribute(-((int)e.immediateValue),"i32");
+            else{
+                append("\n%"+getId()+" = sub i32 0,"+e.getReg());
+                RESULT=new Attribute(e.type,getCurrentId());
+            }
         }
         else if(e.type.equals("double")){
-            append("\n%"+getId()+" = fsub double 0,"+e.getReg());
-            RESULT=new Attribute(e.type,getCurrentId());
+            if(e.immediate) RESULT=new Attribute(-((double)e.immediateValue),"double");
+            else{
+                append("\n%"+getId()+" = fsub double 0,"+e.getReg());
+                RESULT=new Attribute(e.type,getCurrentId());
+            }
         }
         else{
-            errorBuffer.append("\nCannot do a substraction to a value that is not an integer or a double");
-            errors++;
+            semError("Cannot do a substraction to a value that is not an integer or a double");
             RESULT=null;
         }
     }
@@ -1338,8 +1355,7 @@ ATTR::= PROC:p {:
     if(t!=null) v=t.value;
     if(v==null) RESULT=null;
     else if(!v.initialized){
-        errors++;
-        errorBuffer.append("\nValue "+i+" hasn't already been initialized before this expression");
+        semError("Value "+i+" hasn't already been initialized before this expression");
         RESULT=null;
     }
     else{
@@ -1412,8 +1428,7 @@ ATTR::= PROC:p {:
                 RESULT=new Attribute(type,id,i);
             }
             else{
-                errorBuffer.append("\nCan't use an array in an expression,type "+v.irDec());
-                errors++;
+                semError("Can't use an array in an expression,type "+v.irDec());
                 RESULT=null;
             }
         }
@@ -1542,19 +1557,17 @@ IDARR::= IDARR:i QO EXP:a QC {:
     Tuple t=getValue(i);
     Value v=null;
     if(t!=null) v=t.value;
-    if(v==null){
-        errorBuffer.append("\nValue "+i+" has not been declared yet");
-        errors++;
+    if(a==null) RESULT=null;
+    else if(v==null){
+        semError("Value "+i+" has not been declared yet");
         RESULT=null;
     }
     else if(!v.array){
-        errorBuffer.append("\nValue "+i+" is not an array");
-        errors++;
+        semError("Value "+i+" is not an array");
         RESULT=null;
     }
     else if(!v.initialized){
-        errorBuffer.append("\nValue "+i+" has not been initialized yet");
-        errors++;
+        semError("Value "+i+" has not been initialized yet");
         RESULT=null;
     }
     else{
@@ -1607,22 +1620,18 @@ STM::=DEC | FUNCTION;
 
 CONDSTMS::= CONDSTMS CONDSTM | ;
 
-CONDSTM::= ASS | PROC | DEC | BREAK {:
+CONDSTM::= ASS | PROC | DEC | WHILECOND | IFCOMPLETEBLOCK | FORCOND | RET | BREAK {:
     if(inConditional){
         append("\nbr label %for.exit."+forloops.get(forloops.size()-1));
         getId();
     }
-    else {
-        errorBuffer.append("Used continue statement while not in a for loop or while loop");
-    }
+    else semError("Used continue statement while not in a for loop or while loop");
 :} | CONTINUE {:
     if(inConditional){
         append("\nbr label %for.inc."+forloops.get(forloops.size()-1));
         getId();
     }
-    else {
-        errorBuffer.append("Used continue statement while not in a for loop or while loop");
-    }
+    else semError("Used continue statement while not in a for loop or while loop");
 :};
 
 PROC::= ID:name {:
@@ -1631,13 +1640,13 @@ PROC::= ID:name {:
 :} BO CPAREList:l BC {:
     Function f=null;
     int id=0;
+    Boolean parOk=true;
     if(functions.containsKey(name)){
         f=functions.get(name);
         String fParList="("+f.pars.stream().map(e->e.type.irDec()).collect(Collectors.joining(","))+")";
-        if(!fParList.equals("("+l.stream().map(e->e.type+" "+e.getReg()).collect(Collectors.joining(","))+")")){
-            errorBuffer.append("\nPassing a wrong list of parameters to function "+name);
-            errors++;
-            f=null;
+        if(!fParList.equals("("+l.stream().map(e->e.type).collect(Collectors.joining(","))+")")){
+            semError("Passing a wrong list of parameters to function "+name);
+            parOk=false;
         }
         else{
             if(f.retType.equals("void"))    append("\ncall "+f.irDec()+"("+l.stream().map(e->e.type+" "+e.getReg()).collect(Collectors.joining(","))+")");
@@ -1649,10 +1658,9 @@ PROC::= ID:name {:
     }
     callingFunctionPar.remove(callingFunctionPar.size()-1);
     callingFunction.remove(callingFunction.size()-1);
-    if(f!=null) RESULT=new Attribute(f.retType,id);
+    if(f!=null && parOk) RESULT=new Attribute(f.retType,id);
     else{
-        errorBuffer.append("\nCalling a function that either is not declared yet or doesn't exist at all");
-        errors++;
+        if(parOk)   semError("Calling a function that either is not declared yet or doesn't exist at all");
         RESULT=null;
     }
 :} | PRINT BO HEXPL:l BC{:
@@ -1660,10 +1668,7 @@ PROC::= ID:name {:
             if(p.type.equals("i8*"))    append("\n%"+getId()+" = call i32 (i8*, ...) @printf(i8* "+p.getReg()+")");
             else if(p.type.equals("i32"))   append("\n%"+getId()+"= call i32 (i8*, ...) @printf(i8* getelementptr inbounds([3 x i8],[3 x i8]* @.str.int,i32 0,i32 0),i32 "+p.getReg()+")");
             else if(p.type.equals("double"))   append("\n%"+getId()+"= call i32 (i8*, ...) @printf(i8* getelementptr inbounds([4 x i8],[4 x i8]* @.str.double,i32 0,i32 0),double "+p.getReg()+")");
-            else{
-                errors++;
-                errorBuffer.append("\nCan't print a type that is not a string, double or integer");
-            }
+            else    semError("Can't print a type that is not a string, double or integer");
             append("\n%"+getId()+"= call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8],[2 x i8]* @.str.space,i32 0,i32 0))");
         });
         append("\n%"+getId()+" = call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8], [2 x i8]* @.str.newline, i32 0, i32 0))");
@@ -1792,6 +1797,7 @@ FORCOND::= FOR ID:index IN INTVAL:start DOTRANGE:d INTVAL:finish {:
     int indexId=getCurrentId();
     Value v=new Value(32);
     v.setReg(indexId);
+    v.initialized=true;
     scopes.get(scopes.size()-1).constants.put(index,v);
     append("\nstore i32 "+start+",i32* %"+indexId);
     append("\nbr label %for.cond."+currFor);
@@ -1835,6 +1841,7 @@ FORCOND::= FOR ID:index IN INTVAL:start DOTRANGE:d INTVAL:finish {:
     int indexId=getCurrentId();
     Value v=new Value(32);
     v.setReg(indexId);
+    v.initialized=true;
     scopes.get(scopes.size()-1).constants.put(index,v);
     if(vstart!=null && vfinish!=null){
         append("\n%"+getId()+"= load i32,i32* "+vstart.getReg());
@@ -1881,6 +1888,7 @@ FOR ID:index IN ID:start DOTRANGE:d INTVAL:finish {:
     int indexId=getCurrentId();
     Value v=new Value(32);
     v.setReg(indexId);
+    v.initialized=true;
     scopes.get(scopes.size()-1).constants.put(index,v);
     if(vstart!=null){
         append("\n%"+getId()+"= load i32,i32* "+vstart.getReg());
@@ -1919,6 +1927,7 @@ FOR ID:index IN ID:start DOTRANGE:d INTVAL:finish {:
     int indexId=getCurrentId();
     Value v=new Value(32);
     v.setReg(indexId);
+    v.initialized=true;
     scopes.get(scopes.size()-1).constants.put(index,v);
     Tuple tfinish=getValue(finish);
     Value vfinish=null;
@@ -1984,10 +1993,13 @@ COND::= COND:a AND COND:b {:
 :};
 
 CONDATTR::= EXP:a CONDOP:cond EXP:b {:
-    if(!b.type.equals("double"))  append("\n%"+getId()+"= icmp "+getCondIrOp(cond,true)+" "+a.type+" "+a.getReg()+","+b.getReg());
-    else append("\n%"+getId()+"= fcmp "+getCondIrOp(cond,false)+" "+a.type+" "+a.getReg()+","+b.getReg());
-    RESULT=new Attribute("i1",getCurrentId());
-:}| EXP:a {:RESULT=a;:};
+    if(a==null || b==null) RESULT=new Attribute("i1",getCurrentId());
+    else{
+        if(!b.type.equals("double"))  append("\n%"+getId()+"= icmp "+getCondIrOp(cond,true)+" "+a.type+" "+a.getReg()+","+b.getReg());
+        else append("\n%"+getId()+"= fcmp "+getCondIrOp(cond,false)+" "+a.type+" "+a.getReg()+","+b.getReg());
+        RESULT=new Attribute("i1",getCurrentId());
+    }
+:}| EXP:a {:if(a!=null)RESULT=a; else RESULT=new Attribute(-1,"i32");:};
 
 CONDOP::= LESS {:RESULT=operations.LESS;:} | GREATER {:RESULT=operations.GRT;:} | LESSEQ {:RESULT=operations.LSE;:} | GREATEREQ {:RESULT=operations.GRE;:} | EQUAL {:RESULT=operations.EQ;:};
 
@@ -1996,10 +2008,7 @@ CONDOP::= LESS {:RESULT=operations.LESS;:} | GREATER {:RESULT=operations.GRT;:} 
 FUNCTION::=FUNCDef:f GO FSTMTS GC {:
     if(!f.returned){
         if(f.retType.equals("void"))    f.functionOutput.append("\nret void");
-        else{
-            errorBuffer.append("\nDidn't have a return statement and function isn't of type void");
-            errors++;
-        }
+        else    semError("Didn't have a return statement and function isn't of type void");
     }
     outputBuffer.append("{"+f.functionOutput+"\n}");
     inFunction=false;
@@ -2099,16 +2108,10 @@ RET::= RETURN EXP:e {:
         f.returned=true;
         getId();
     }
-    else{
-        errorBuffer.append("\nReturning a type that doesn't match with the return type of the function");
-        errors++;
-    }
+    else    semError("Returning a type that doesn't match with the return type of the function");
 :} | RETURN {:
     Function f=functions.get(functionName);
-    if(!f.retType.equals("void")){
-        errorBuffer.append("\nReturning nothing from a non void function");
-        errors++;
-    }
+    if(!f.retType.equals("void"))   semError("Returning nothing from a non void function");
     else{
         f.functionOutput.append("\nret void");
         f.returned=true;
