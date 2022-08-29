@@ -10,7 +10,7 @@ import java_cup.runtime.*;
 %state STRINGINTERPOLATION
 id=[\_a-zA-Z][\_a-zA-Z0-9]*
 int=  [0-9] | [1-9][0-9]*
-double =  ((([0-9]+\.[0-9]*) | ([0-9]*\.[0-9]+)) (e|E('+'|'-')?[0-9]+)?)
+double =  ((([1-9][0-9]*\.[0-9]+ ) | (0\.[0-9]+)) (e|E('+'|'-')?[0-9]+)?)
 string= \"[^\"\(\)]*\"
 stringInterpolationStart=\"[^\"\(\)]*\\\(
 stringInterpolationIntermediate=\)[^\"\(\)]*\\\(
@@ -62,6 +62,7 @@ ws = [ \t]
 ")" { return symbol(sym.BC); }
 "{" { return symbol(sym.GO); }
 "}" { return symbol(sym.GC); }
+"!=" { return symbol(sym.NOTEQUAL); }
 "==" { return symbol(sym.EQUAL); }
 ">" { return symbol(sym.GREATER); }
 ">=" { return symbol(sym.GREATEREQ); }

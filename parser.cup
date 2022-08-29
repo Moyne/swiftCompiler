@@ -13,6 +13,8 @@ init with {:
     globalInitializations=new StringBuffer();
     globalInitializationsId=0;
     errors=0;
+    semErrors=0;
+    synErrors=0;
     functions=new HashMap<String,Function>();
     regid=0;
     stringIndex=(-1);
@@ -35,7 +37,8 @@ parser code {:
         GRT,
         LSE,
         GRE,
-        EQ
+        EQ,
+        NEQ
     };
     public class Scope{
         public HashMap<String,Value> variables;
@@ -356,6 +359,8 @@ parser code {:
     public StringBuffer globalInitializations;
     public int globalInitializationsId;
     public int errors;
+    public int semErrors;
+    public int synErrors;
     public HashMap<String,Function> functions;
     public int regid;
     public int stringIndex;
@@ -508,10 +513,20 @@ parser code {:
             if(integer) return "eq";
             else return "oeq";
         }
+        else if(cond==operations.NEQ){
+            if(integer) return "ne";
+            else return "one";
+        }
         else return "ERROR";
     }
     public void semError(String message){
         errorBuffer.append("\n(semantic error at line: "+getLine()+",column:"+getColumn()+"):"+message);
+        semErrors++;
+        errors++;
+    }
+    public void synError(String message){
+        errorBuffer.append("\n(syntax error at line: "+getLine()+",column:"+getColumn()+"):"+message);
+        synErrors++;
         errors++;
     }
     public int getLine() {
@@ -548,7 +563,7 @@ terminal String ID,STRINGVAL,STRINGVALS,STRINGVALI,STRINGVALE;
 terminal C,EQ,COL,BO,BC,GO,GC,ARROW;
 terminal STRING,DOUBLE,INT,FUNC,USCORE;
 terminal PLUS,MINUS,DIV,MUL;
-terminal LESS,GREATER,LESSEQ,GREATEREQ,AND,OR,EQUAL,NOT;
+terminal LESS,GREATER,LESSEQ,GREATEREQ,AND,OR,EQUAL,NOT,NOTEQUAL;
 terminal ELIF,ELSE,IF,FOR,IN,WHILE,DOT;
 terminal QO,QC,INOUT;
 terminal PRINT,RETURN;
@@ -580,7 +595,7 @@ start with PROG;
 PROG::= STMS {:
     if(errors==0)   System.out.println(";DEPENDENCY DECLARATIONS\ndeclare i32 @printf(i8*, ...)\ndeclare i32 @sprintf(i8*,i8*, ...)\ndeclare i8* @strcat(i8*,i8*)\ndeclare i8* @strcpy(i8*,i8*)\n@.str.newline = constant [2 x i8] c\"\\0A\\00\"\n@.str.int = constant [3 x i8] c\"%d\\00\"\n@.str.double = constant [4 x i8] c\"%lf\\00\"\n@.str.space = constant [2 x i8] c\" \\00\"\n;GLOBAL DECLARATIONS\n"
 +globalBuffer+"\n;GLOBAL INITIALIZATIONS OF GLOBAL VARIABLES THAT ARE STRINGS OR ARRAYS OF STRINGS\ndefine void @globalinit(){"+globalInitializations+"\nret void\n}\n"+outputBuffer+"\n");
-    else System.err.println("There were "+errors+"errors, here there are:\n"+ errorBuffer);
+    else System.err.println("There were "+errors+"errors ("+semErrors+" semantic ones and "+synErrors+"syntax ones), here there are:\n"+ errorBuffer);
 :} ;
 
 //declarations of variables
@@ -709,7 +724,7 @@ l.forEach(a->{
     scopes.get(scopes.size()-1).constants.putAll(l);
 :} | VAR IDINITlist:l {:
     scopes.get(scopes.size()-1).variables.putAll(l);
-:};
+:} | LET error {:synError("Error in constant declaration");:} | VAR error {:synError("Error in variable declaration");:} | LET IDlist error {:synError("Error in constant declaration,type annotation missing");:} | VAR IDlist error {:synError("Error in variable declaration,type annotation missing");:} ;
 
 IDlist::= IDlist:l C ID:x {: ArrayList<String> arr= new ArrayList<String>(l);
                             arr.add(x);
@@ -723,6 +738,11 @@ IDINITlist::= IDINITlist:l C INIT:i {:
 :} | INIT:i {:
     HashMap<String,Value> res=new HashMap<String,Value>();
     if(i!=null) res.put(i.name,i.value);
+    RESULT=res;
+:} | error C INIT:i {:
+    HashMap<String,Value> res=new HashMap<String,Value>();
+    if(i!=null) res.put(i.name,i.value);
+    synError("Error in direct initialization");
     RESULT=res;
 :};
 
@@ -808,20 +828,33 @@ INIT::= ID:i EQ EXP:l {:
             RESULT=null;
         }
     }
-:} ;
+:}| error EQ EXP {:synError("Error on the left side of direct initilization");RESULT=null;:};
 
 TYPE::= COL TList:t {:RESULT=t;:}| COL TList:t EQ VAL:v {:
-    t.setImmediateInit(v);
+    if(t.irDec().equals(v.type))    t.setImmediateInit(v);
+    else semError("Type annotation doesn't match initialization type");
     RESULT=t;
 :} | COL TList:t EQ MINUS VAL:v {:
-    if(v.type.equals("i32")) t.setImmediateInit(new Attribute(-((int)v.immediateValue),"i32"));
-    else if(v.type.equals("double")) t.setImmediateInit(new Attribute(-((double)v.immediateValue),"double"));
+    if(t.irDec().equals(v.type)){
+        if(v.type.equals("i32")) t.setImmediateInit(new Attribute(-((int)v.immediateValue),"i32"));
+        else if(v.type.equals("double")) t.setImmediateInit(new Attribute(-((double)v.immediateValue),"double"));
+    }
+    else semError("Type annotation doesn't match initialization type");
     RESULT=t;
 :} | COL TList:t EQ ARRVALE:l {:
-    t.setArrDimensions(l.getDimensions());
-    t.setImmediateInit(l);
+    if(t.array){
+        if(l.getBaseType().equals(t.getBaseType())){
+            if(t.dimensions.size()==l.getDimensions().size()){
+                t.setArrDimensions(l.getDimensions());
+                t.setImmediateInit(l);
+            }
+            else semError("Type annotation array dimensions doesn't match array associated to it");
+        }
+        else semError("The type of the array of the type annotation doesn't match the one associated to it");
+    }
+    else semError("Type annotation didn't expect an array");
     RESULT=t;
-:};
+:} | COL error VAL:v {:synError("Error in type annotation");Value res=new Value(32);res.setImmediateInit(v);RESULT=res;:};
 
 VAL::= DOUBLEVAL:v {:RESULT=new Attribute(v,"double");:}| INTVAL:v {:RESULT=new Attribute(v,"i32");:}| STR:v {:RESULT=v;:};
 
@@ -881,7 +914,7 @@ STR::= STRINGVAL:s {:
     append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* %"+i+")");
     append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+stringGepPointer+",i8* getelementptr inbounds(["+lene+" x i8], ["+lene+" x i8]* @.str."+stringIndex+" , i32 0, i32 0))");
     RESULT=new Attribute("i8*",stringGepPointer);
-:};
+:} | error STRINGVALE {:synError("Error in string declaration");RESULT=new Attribute("i8*",-1);:};
 
 STRINGVALINTERP::= STRINGVALINTERP:i STRINGVALI:s EXP:e {:
     int expPointer,expGep,finalArrPointer,finalGepPointer;
@@ -963,12 +996,17 @@ ARRVAL::= QO EXPL:l QC {:
         }
     }
     RESULT=new ArrayDec("["+l.size()+" x "+l.get(0).type+"]",l,true,allImmediates);
-:};
+:} | QO error QC {:synError("Error inside an array declaration");RESULT=new ArrayDec("i32",new ArrayList<Attribute>(),true,false);:};
 
 HEXPL::= HEXPL:l C EXP:e {:
     if(e!=null) l.add(e);
     RESULT=l;
 :} | EXP:e {:
+    ArrayList<Attribute> l=new ArrayList<Attribute>();
+    if(e!=null) l.add(e);
+    RESULT=l;
+:} | error C EXP:e{:
+    synError("Error in attribute list of print instruction");
     ArrayList<Attribute> l=new ArrayList<Attribute>();
     if(e!=null) l.add(e);
     RESULT=l;
@@ -987,12 +1025,17 @@ EXPL::= EXPL:l C EXP:e {:
     ArrayList<Attribute> l=new ArrayList<Attribute>();
     if(e!=null) l.add(e);
     RESULT=l;
-:} | ;
+:} | error C EXP:e{:
+    synError("Error in attribute list of array");
+    ArrayList<Attribute> l=new ArrayList<Attribute>();
+    if(e!=null) l.add(e);
+    RESULT=l;
+:} | {:RESULT=new ArrayList<Attribute>();:};
 
 TList::= QO TList:t QC {:
     t.addArrLevel();
     RESULT=t;
-:}| T:t {:RESULT=t;:};
+:}| T:t {:RESULT=t;:} | QO error QC {:synError("Error in type annotation of array");RESULT=new Value(32);:};
 
 T::=STRING {:RESULT=new Value(true);:}| DOUBLE {:RESULT=new Value(false);:}| INT{:RESULT=new Value(32);:} ;
 
@@ -1140,7 +1183,7 @@ ASS::= ID:a EQ EXP:e {:
             }
         }
     }
-:};
+:} | error EQ EXP {:synError("Error on the left side of the assignment");:};
 
 CPAR::= ID:name COL EXP:e {:
     int np=callingFunctionPar.get(callingFunctionPar.size()-1);
@@ -1344,7 +1387,7 @@ EXP::= EXP:e PLUS EXP:a {:
         }
     }
     else RESULT=null;
-:} %prec uminus;
+:} %prec uminus | BO error BC {:synError("Error in expression");RESULT=null;:} | error ATTR:a {:synError("Error in expression");if(a!=null)RESULT=a;else RESULT=new Attribute("i32",-1);:};
 
 
 ATTR::= PROC:p {:
@@ -1513,7 +1556,7 @@ IDARR::= IDARR:i QO EXP:a QC {:
         if(i.dimensions.size()>0){
             ArrayList<String> s=new ArrayList<String>();
             for(int j=0;j<i.dimensions.size();j++){
-                if(j==0)    append("\n%"+getId()+"= mul i32 %"+i.dimensions.get(j)+","+a.getReg());
+                if(j==0)    if(a!=null) append("\n%"+getId()+"= mul i32 %"+i.dimensions.get(j)+","+a.getReg());
                 else{
                     int oldId=getCurrentId();
                     append("\n%"+getId()+"= mul i32 %"+oldId+",%"+i.dimensions.get(j));
@@ -1525,7 +1568,7 @@ IDARR::= IDARR:i QO EXP:a QC {:
             RESULT=new Attribute(i.type,i.associatedVarName,getCurrentId(),s);
         }
         else{
-            append("\n%"+getId()+"= add nsw i32 "+a.getReg()+","+i.getReg());
+            if(a!=null) append("\n%"+getId()+"= add nsw i32 "+a.getReg()+","+i.getReg());
             int lastId=getCurrentId();
             Tuple t=getValue(i.associatedVarName);
             Value v=null;
@@ -1539,7 +1582,7 @@ IDARR::= IDARR:i QO EXP:a QC {:
     }
     else{
         String ir=i.type;
-        append("\n%"+getId()+" = getelementptr inbounds "+i.type+","+i.type+"* "+i.getReg()+", i32 0, i32 "+a.getReg());
+        if(a!=null) append("\n%"+getId()+" = getelementptr inbounds "+i.type+","+i.type+"* "+i.getReg()+", i32 0, i32 "+a.getReg());
         String subir=ir.substring(1,ir.length()-1);
         String newType;
         if(subir.indexOf("[")<0){
@@ -1608,17 +1651,17 @@ IDARR::= IDARR:i QO EXP:a QC {:
             }
         }
     }
-:} ;
+:} | ID QO error QC {:synError("error inside index of array");RESULT=null;:} | IDARR QO error QC {:synError("error inside index of array");RESULT=null;:};
 
 OP::= PLUS {:RESULT=operations.ADD;:} | MINUS {:RESULT=operations.SUB;:} | MUL {:RESULT=operations.MUL;:} | DIV {:RESULT=operations.DIV;:} ;
 
 //statements
 
-STMS::= STMS STM | STM;
+STMS::= STMS STM | STMS error | ;
 
 STM::=DEC | FUNCTION;
 
-CONDSTMS::= CONDSTMS CONDSTM | ;
+CONDSTMS::= CONDSTMS CONDSTM | CONDSTMS error | ;
 
 CONDSTM::= ASS | PROC | DEC | WHILECOND | IFCOMPLETEBLOCK | FORCOND | RET | BREAK {:
     if(inConditional){
@@ -1716,6 +1759,26 @@ CPARlist::= CPARlist:l C CPAR:p {:
         }
     }
     RESULT=l;
+:} | error C CPAR:p {:
+    synError("error in attribute list in function call");
+    ArrayList<Attribute> l=new ArrayList<Attribute>();
+    if(p!=null){
+        l.add(p);
+        if(p.arrVar){
+            if(p.arrFunc){
+                for(int i=0;i<p.dimensions.size();i++){
+                    append("\n%"+getId()+"= load i32,i32* "+p.dimensions.get(i));
+                    l.add(new Attribute("i32",getCurrentId()));
+                }
+                callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+p.dimensions.size());
+            }
+            else{
+                for(int i=0;i<p.dimensionsInt.size();i++)  l.add(new Attribute(p.dimensionsInt.get(i),"i32"));
+                callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+p.dimensionsInt.size());
+            }
+        }
+    }
+    RESULT=l;
 :};
 
 
@@ -1732,7 +1795,7 @@ IFCOMPLETEBLOCK::= IFCC:ifc {:
     append("\nbr label %if.exit."+ifc.type+".0");
     append("\nif.exit."+ifc.type+".0:");
     scopes.remove(scopes.size()-1);
-:};
+:} | error ELSE GO CONDSTMS GC{:synError("Error in if block");:};
 
 IFCC::= IFCC:ifc ELIF {:
     append("\nif.elif."+ifc.type+"."+ifc.regId+":");
@@ -1745,13 +1808,13 @@ IFCC::= IFCC:ifc ELIF {:
     ifc.setReg(ifc.regId+1);
     scopes.remove(scopes.size()-1);
     RESULT=ifc;
-:} | IFCOND:ifc {:RESULT=ifc;:};
+:} | IFCOND:ifc {:RESULT=ifc;:} | error ELIF COND GO CONDSTM GC {:synError("error in if statement");RESULT=new Attribute(""+(-1),0);:};
 
 IFCOND::= IFCONDDEC:ifNum GO CONDSTMS GC {:
     append("\nbr label %if.exit."+ifNum+".0");
     scopes.remove(scopes.size()-1);
     RESULT=new Attribute(""+ifNum,0);
-:} | IFCONDDEC STM ;
+:} | IF error GO CONDSTM GC {:synError("error in if conditional statement");RESULT=new Attribute(""+(-1),0);:};
 
 IFCONDDEC::= IF COND:cond {:
     int currIf=currentIf++;
@@ -1777,7 +1840,7 @@ WHILECOND::= WHILEDEF:wh COND:cond {:
     scopes.remove(scopes.size()-1);
     if(forloops.size()==1) inConditional=false;
     forloops.remove(forloops.size()-1);
-:};
+:} | WHILEDEF error GO CONDSTMS GC {:synError("error in while conditional statement");:};
 
 WHILEDEF::= WHILE {:
     int currWh=currentFor++;
@@ -1786,7 +1849,8 @@ WHILEDEF::= WHILE {:
     RESULT=currWh;
 :};
 
-DOTRANGE::= DOT DOT DOT {:RESULT=true;:} | DOT DOT LESS {:RESULT=false;:} ;
+DOTRANGE::= DOT DOT DOT {:RESULT=true;:} | DOT DOT LESS {:RESULT=false;:} | error DOT {:synError("error in range operator, it should be ...");RESULT=true;:}
+| error DOT LESS {:synError("error in range operator, it should be ..<");RESULT=false;:};
 
 FORCOND::= FOR ID:index IN INTVAL:start DOTRANGE:d INTVAL:finish {:
     scopes.add(new Scope());
@@ -1963,7 +2027,7 @@ FOR ID:index IN ID:start DOTRANGE:d INTVAL:finish {:
     scopes.remove(scopes.size()-1);
     if(forloops.size()==1) inConditional=false;
     forloops.remove(forloops.size()-1);
-:} ;
+:} | FOR error GO CONDSTMS GC {:synError("error in for declaration");:};
 
 
 COND::= COND:a AND COND:b {:
@@ -1990,7 +2054,9 @@ COND::= COND:a AND COND:b {:
     }
     else    RESULT=a;
 :} | BO COND:a BC {: RESULT=a;
-:};
+:} |
+error OR COND {:synError("Error in conditional expression");RESULT=new Attribute("i1",-1);:} | 
+error AND COND {:synError("Error in conditional expression");RESULT=new Attribute("i1",-1);:};
 
 CONDATTR::= EXP:a CONDOP:cond EXP:b {:
     if(a==null || b==null) RESULT=new Attribute("i1",getCurrentId());
@@ -1999,22 +2065,26 @@ CONDATTR::= EXP:a CONDOP:cond EXP:b {:
         else append("\n%"+getId()+"= fcmp "+getCondIrOp(cond,false)+" "+a.type+" "+a.getReg()+","+b.getReg());
         RESULT=new Attribute("i1",getCurrentId());
     }
-:}| EXP:a {:if(a!=null)RESULT=a; else RESULT=new Attribute(-1,"i32");:};
+:}| EXP:a {:if(a!=null)RESULT=a; else RESULT=new Attribute(-1,"i32");:}
+| error CONDOP EXP {:synError("error in conditional expression");RESULT=new Attribute(-1,"i32");:};
 
-CONDOP::= LESS {:RESULT=operations.LESS;:} | GREATER {:RESULT=operations.GRT;:} | LESSEQ {:RESULT=operations.LSE;:} | GREATEREQ {:RESULT=operations.GRE;:} | EQUAL {:RESULT=operations.EQ;:};
+CONDOP::= LESS {:RESULT=operations.LESS;:} | GREATER {:RESULT=operations.GRT;:} | LESSEQ {:RESULT=operations.LSE;:} | GREATEREQ {:RESULT=operations.GRE;:} | EQUAL {:RESULT=operations.EQ;:}
+| NOTEQUAL {:RESULT=operations.NEQ;:};
 
 //function declaration
 
 FUNCTION::=FUNCDef:f GO FSTMTS GC {:
-    if(!f.returned){
-        if(f.retType.equals("void"))    f.functionOutput.append("\nret void");
-        else    semError("Didn't have a return statement and function isn't of type void");
+    if(f!=null){
+        if(!f.returned){
+            if(f.retType.equals("void"))    f.functionOutput.append("\nret void");
+            else    semError("Didn't have a return statement and function isn't of type void");
+        }
+        outputBuffer.append("{"+f.functionOutput+"\n}");
+        inFunction=false;
+        functionName=null;
+        scopes.remove(scopes.size()-1);
     }
-    outputBuffer.append("{"+f.functionOutput+"\n}");
-    inFunction=false;
-    functionName=null;
-    scopes.remove(scopes.size()-1);
-:};
+:} | error GO FSTMTS GC {:synError("erro in function declaration");:};
 
 FUNCDef::=FUNC ID:name {:
     inFunction=true;
@@ -2049,7 +2119,7 @@ FUNCDef::=FUNC ID:name {:
         }
     });
     RESULT=f;
-:};
+:} | FUNC error RETVAL {:synError("Error in function declaration, missing name and parameters");RESULT=null;:};
 
 RETVAL::=ARROW T:t {:RESULT=t.irDec();:}| {:RESULT="void";:};
 
@@ -2089,7 +2159,24 @@ PARlist::= PARlist:l C PAR:p {:
 :} | {:
     ArrayList<Parameter> l=new ArrayList<Parameter>();
     RESULT=l;
-:};
+:} | error C PAR:p{:
+    synError("Error in parameter specification");
+    ArrayList<Parameter> l=new ArrayList<Parameter>();
+    l.add(p);
+    if(p.type.array){
+        int dim=p.type.dimensions.size();
+        for(int i=0;i<dim-1;i++){
+            Value x=new Value(32);
+            x.setInout(false);
+            x.initialized=true;
+            Parameter pfor=new Parameter(x,"dim."+functions.get(functionName).arrayNum+"."+i);
+            pfor.setArrayDim();
+            l.add(pfor);
+            p.type.addFunctionDimension("dim."+functions.get(functionName).arrayNum+"."+i);
+        }
+        if(dim>1) functions.get(functionName).arrayNum++;
+    }
+    RESULT=l;:};
 
 PAR::= ID:label ID:name FTYPE:f {:RESULT=new Parameter(f,name,label);:}| ID:name FTYPE:f {:RESULT=new Parameter(f,name,name);:}| USCORE ID:name FTYPE:f{:RESULT=new Parameter(f,name);:};
  
@@ -2097,18 +2184,20 @@ FTYPE::= COL INOUTF:i TList:t {:t.setInout(i);t.initialized=true;RESULT=t;:};
 
 INOUTF::=INOUT {:RESULT=true;:} | {:RESULT=false;:};
 
-FSTMTS::= FSTMTS FSTM | ;
+FSTMTS::= FSTMTS FSTM | FSTMTS error | ;
 
 FSTM::=IFCOMPLETEBLOCK | WHILECOND | FORCOND | ASS | PROC | DEC | RET ;
 
 RET::= RETURN EXP:e {:
-    Function f=functions.get(functionName);
-    if(f.retType.equals(e.type)){
-        f.functionOutput.append("\nret "+e.type+" "+e.getReg());
-        f.returned=true;
-        getId();
+    if(e!=null){
+        Function f=functions.get(functionName);
+        if(f.retType.equals(e.type)){
+            f.functionOutput.append("\nret "+e.type+" "+e.getReg());
+            f.returned=true;
+            getId();
+        }
+        else    semError("Returning a type that doesn't match with the return type of the function");
     }
-    else    semError("Returning a type that doesn't match with the return type of the function");
 :} | RETURN {:
     Function f=functions.get(functionName);
     if(!f.retType.equals("void"))   semError("Returning nothing from a non void function");
