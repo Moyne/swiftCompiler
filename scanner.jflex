@@ -78,5 +78,5 @@ ws = [ \t]
 "_" { return symbol(sym.USCORE); }
 {id} { return symbol(sym.ID,yytext()); }
 {ws}|{nl}       {;}
-"/*" ~ "*/" | "//" ~   {;}
+"/*" ~ "*/" | "//" ~ {nl}   {;}
 . {System.out.println("SCANNER ERROR: "+yytext());}
