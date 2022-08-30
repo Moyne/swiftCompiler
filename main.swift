@@ -13,16 +13,19 @@ func bubble(_ arr: inout [Int]){
         }
     }
 }
-func arrglobfunc(_ arr: [[[Int]]]){
+//comments
+
+func arrglobfunc(label arr: [[[Int]]]){
     print("Global array:")
-    var str = "ajfnao***"
+    var str = "ajfnao***" 
     print(str)
     str+=" wow "+" that's crazy!"+" , good luck"
-    print(str)
+    print(str) //comments after instruction
     for i in 0 ... 1 {
         for j in 0 ... 2 {
             for k in 0 ... 4 {
                 print(arr[i][j][k])
+                break
             }
             print("--")
         }
@@ -41,5 +44,5 @@ func main(){
     for i in 0 ... 4 {
         print(x[i])
     }
-    arrglobfunc(arrtests)
+    arrglobfunc(label:arrtests)
 }

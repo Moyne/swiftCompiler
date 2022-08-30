@@ -535,7 +535,7 @@ parser code {:
     }
 
     public int getColumn() {
-        if (((Symbol)stack.elementAt(tos)).left != -1){
+        if (((Symbol)stack.elementAt(tos)).right != -1){
             return ((Symbol)stack.elementAt(tos)).right+1;
         }else return -1;
     }
@@ -569,7 +569,7 @@ terminal PRINT,RETURN;
 terminal BREAK,CONTINUE,DEREF;
 terminal uminus;
 
-non terminal PROG,DEC,IFCOMPLETEBLOCK,RET,ASS,STMS,STM,FUNCTION,FSTMTS,FSTM,CONDSTM,CONDSTMS,WHILECOND,FORCOND,SEP;
+non terminal PROG,DEC,IFCOMPLETEBLOCK,RET,ASS,STMS,STM,FUNCTION,FSTMTS,FSTM,CONDSTM,CONDSTMS,WHILECOND,FORCOND,SEP,BASESTM;
 non terminal HashMap<String,Value> IDINITlist;
 non terminal Tuple INIT;
 non terminal ArrayList<String> IDlist;
@@ -617,7 +617,7 @@ l.forEach(a->{
             }
             else{
                 Attribute att=(Attribute) t.immediateInitialization;
-                if(att.type.equals("double") || att.type.equals("i32")) globalBuffer.append("\n@"+a+"= global "+t.irDec()+" "+att.getReg()+",align 4");
+                if(att.type.equals("double") || att.type.equals("i32")) globalBuffer.append("\n@"+a+"= global "+t.irDec()+" "+att.getReg());
                 else{
                     globalBuffer.append("\n@"+a+".arr = global [200 x i8] zeroinitializer");
                     globalBuffer.append("\n@"+a+" = global i8* getelementptr inbounds([200 x i8],[200 x i8]* @"+a+".arr,i32 0,i32 0)");
@@ -634,7 +634,7 @@ l.forEach(a->{
     }
     else{
         int id=getId();
-        append("\n%"+id+"= alloca "+t.irDec()+",align 4");
+        append("\n%"+id+"= alloca "+t.irDec());
         if(t.initialized){
             if(t.array){
                 int i=getCurrentId();
@@ -677,7 +677,7 @@ l.forEach(a->{
             }
             else{
                 Attribute att=(Attribute) t.immediateInitialization;
-                if(att.type.equals("double") || att.type.equals("i32")) globalBuffer.append("\n@"+a+"= global "+t.irDec()+" "+att.getReg()+",align 4");
+                if(att.type.equals("double") || att.type.equals("i32")) globalBuffer.append("\n@"+a+"= global "+t.irDec()+" "+att.getReg());
                 else{
                     globalBuffer.append("\n@"+a+".arr = global [200 x i8] zeroinitializer");
                     globalBuffer.append("\n@"+a+" = global i8* getelementptr inbounds([200 x i8],[200 x i8]* @"+a+".arr,i32 0,i32 0)");
@@ -694,7 +694,7 @@ l.forEach(a->{
     }
     else{
         int id=getId();
-        append("\n%"+id+"= alloca "+t.irDec()+",align 4");
+        append("\n%"+id+"= alloca "+t.irDec());
         if(t.initialized){
             if(t.array){
                 int i=getCurrentId();
@@ -750,7 +750,7 @@ INIT::= ID:i EQ EXP:l {:
         if(l.type.equals("i32") || l.type.equals("double") || l.type.equals("i8*")){
             if(inFunction){
                 int id=getId();
-                append("\n%"+id+"= alloca "+l.type+",align 4");
+                append("\n%"+id+"= alloca "+l.type);
                 if(l.type.equals("i8*")){
                     append("\n%"+getId()+"= alloca [200 x i8]");
                     int idStr=getCurrentId();
@@ -798,7 +798,7 @@ INIT::= ID:i EQ EXP:l {:
 :} | ID:i EQ ARRVALE:l {:
     if(inFunction){
         int id=getId();
-        append("\n%"+id+"= alloca "+l.type+",align 4");
+        append("\n%"+id+"= alloca "+l.type);
         storeRow(id,l);
         Value v=new Value(l.getBaseType());
         ArrayList<Integer> dimensions=l.getDimensions();
@@ -1191,7 +1191,9 @@ ASS::= ID:a EQ EXP:e {:
             }
         }
     }
-:} | error EQ EXP {:synError("Error on the left side of the assignment");:};
+:} | error EQ EXP {:synError("Error on the left side of the assignment");:} |
+ID EQ error {:synError("Error in assignment");:} | ID OP EQ error {:synError("Error in assignment");:} |
+IDARR EQ error {:synError("Error in assignment");:} | IDARR OP EQ error {:synError("Error in assignment");:};
 
 CPAR::= ID:name COL EXP:e {:
     int np=callingFunctionPar.get(callingFunctionPar.size()-1);
@@ -1560,7 +1562,8 @@ ATTR::= PROC:p {:
 :} ;
 
 IDARR::= IDARR:i QO EXP:a QC {:
-    if(i.arrFunc){
+    if(i==null || a==null) RESULT=null;
+    else if(i.arrFunc){
         if(i.dimensions.size()>0){
             ArrayList<String> s=new ArrayList<String>();
             for(int j=0;j<i.dimensions.size();j++){
@@ -1576,7 +1579,7 @@ IDARR::= IDARR:i QO EXP:a QC {:
             RESULT=new Attribute(i.type,i.associatedVarName,getCurrentId(),s);
         }
         else{
-            if(a!=null) append("\n%"+getId()+"= add nsw i32 "+a.getReg()+","+i.getReg());
+            append("\n%"+getId()+"= add nsw i32 "+a.getReg()+","+i.getReg());
             int lastId=getCurrentId();
             Tuple t=getValue(i.associatedVarName);
             Value v=null;
@@ -1590,7 +1593,7 @@ IDARR::= IDARR:i QO EXP:a QC {:
     }
     else{
         String ir=i.type;
-        if(a!=null) append("\n%"+getId()+" = getelementptr inbounds "+i.type+","+i.type+"* "+i.getReg()+", i32 0, i32 "+a.getReg());
+        append("\n%"+getId()+" = getelementptr inbounds "+i.type+","+i.type+"* "+i.getReg()+", i32 0, i32 "+a.getReg());
         String subir=ir.substring(1,ir.length()-1);
         String newType;
         if(subir.indexOf("[")<0){
@@ -1660,8 +1663,7 @@ IDARR::= IDARR:i QO EXP:a QC {:
         }
     }
 :} | ID QO error QC {:synError("Error inside index of array");RESULT=null;:} | IDARR QO error QC {:synError("Error inside index of array");RESULT=null;:}
-| ID QO EXP error {:synError("Error missing ]");:}
-| IDARR QO EXP error {:synError("Error missing ]");:};
+| ID QO EXP error {:synError("Error missing ]");:} | IDARR QO EXP error {:synError("Error missing ]");:};
 
 OP::= PLUS {:RESULT=operations.ADD;:} | MINUS {:RESULT=operations.SUB;:} | MUL {:RESULT=operations.MUL;:} | DIV {:RESULT=operations.DIV;:} ;
 
@@ -1669,23 +1671,25 @@ OP::= PLUS {:RESULT=operations.ADD;:} | MINUS {:RESULT=operations.SUB;:} | MUL {
 
 STMS::= STMS STM | ;
 
-STM::=DEC SEP | NL | FUNCTION | error SEP {:synError("Error in statements");:};
+STM::=BASESTM SEP | NL | FUNCTION | error SEP {:synError("Error in statements");:} | error {:synError("Missing a new line or a separator ;");:};
 
 CONDSTMS::= CONDSTMS CONDSTM | ;
 
-CONDSTM::= NL | ASS SEP | PROC SEP | DEC SEP | WHILECOND NL | IFCOMPLETEBLOCK NL | FORCOND NL | RET SEP | BREAK SEP {:
+BASESTM::= ASS | PROC | DEC | RET | BREAK {:
     if(inConditional){
         append("\nbr label %for.exit."+forloops.get(forloops.size()-1));
         getId();
     }
     else semError("Used continue statement while not in a for loop or while loop");
-:} | CONTINUE SEP {:
+:} | CONTINUE {:
     if(inConditional){
         append("\nbr label %for.inc."+forloops.get(forloops.size()-1));
         getId();
     }
     else semError("Used continue statement while not in a for loop or while loop");
-:} | error SEP {:synError("Error in statements inside a conditional block");:};
+:};
+
+CONDSTM::= NL | BASESTM SEP | WHILECOND NL | IFCOMPLETEBLOCK NL | FORCOND NL | error SEP {:synError("Error in statements inside a conditional block");:} | error {:synError("Missing a new line or a separator ;");:};
 
 PROC::= ID:name {:
     callingFunction.add(name);
@@ -2168,9 +2172,10 @@ INOUTF::=INOUT {:RESULT=true;:} | {:RESULT=false;:};
 
 FSTMTS::= FSTMTS FSTM | ;
 
-FSTM::=IFCOMPLETEBLOCK NL | WHILECOND NL | FORCOND NL | ASS SEP | PROC SEP | DEC SEP | RET SEP | NL | error SEP {:synError("Error in statements inside a function");:};
+FSTM::=IFCOMPLETEBLOCK | WHILECOND | FORCOND | BASESTM SEP | NL | error SEP {:synError("Error in statements inside a function");:} | error {:synError("Missing a new line or a separator ;");:};
 
 RET::= RETURN EXP:e {:
+    if(!inFunction) semError("Return function while not inside a function");
     if(e!=null){
         Function f=functions.get(functionName);
         if(f.retType.equals(e.type)){
@@ -2181,13 +2186,16 @@ RET::= RETURN EXP:e {:
         else    semError("Returning a type that doesn't match with the return type of the function");
     }
 :} | RETURN {:
-    Function f=functions.get(functionName);
-    if(!f.retType.equals("void"))   semError("Returning nothing from a non void function");
-    else{
-        f.functionOutput.append("\nret void");
-        f.returned=true;
-        getId();
+    if(inFunction){
+        Function f=functions.get(functionName);
+        if(!f.retType.equals("void"))   semError("Returning nothing from a non void function");
+        else{
+            f.functionOutput.append("\nret void");
+            f.returned=true;
+            getId();
+        }
     }
+    else semError("Return function while not inside a function");
 :};
 
 SEP::= S | NL;

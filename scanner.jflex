@@ -80,5 +80,5 @@ ws = [ \t]
 ";" { return symbol(sym.S); }
 {nl} { return symbol(sym.NL); }
 {ws}       {;}
-"/*" ~ "*/" | "//" [.]* {nl}   {;}
+"/*" ~ "*/" | "//" ~ {nl}   { return symbol(sym.NL); }
 . {System.out.println("SCANNER ERROR: "+yytext());}
