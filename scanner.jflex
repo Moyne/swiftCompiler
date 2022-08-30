@@ -77,6 +77,8 @@ ws = [ \t]
 "]" { return symbol(sym.QC); }
 "_" { return symbol(sym.USCORE); }
 {id} { return symbol(sym.ID,yytext()); }
-{ws}|{nl}       {;}
-"/*" ~ "*/" | "//" ~   {;}
+";" { return symbol(sym.S); }
+{nl} { return symbol(sym.NL); }
+{ws}       {;}
+"/*" ~ "*/" | "//" [.]* {nl}   {;}
 . {System.out.println("SCANNER ERROR: "+yytext());}
