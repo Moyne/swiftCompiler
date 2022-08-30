@@ -55,7 +55,6 @@ ws = [ \t]
 "break" { return symbol(sym.BREAK); }
 "continue" { return symbol(sym.CONTINUE); }
 "return" { return symbol(sym.RETURN); }
-";" { return symbol(sym.S); }
 "," { return symbol(sym.C); }
 "=" { return symbol(sym.EQ); }
 ":" { return symbol(sym.COL); }
@@ -79,5 +78,5 @@ ws = [ \t]
 "_" { return symbol(sym.USCORE); }
 {id} { return symbol(sym.ID,yytext()); }
 {ws}|{nl}       {;}
-"/*" ~ "*/"     {;}
+"/*" ~ "*/" | "//" ~   {;}
 . {System.out.println("SCANNER ERROR: "+yytext());}

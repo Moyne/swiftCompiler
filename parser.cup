@@ -559,7 +559,7 @@ action code{:
 
 terminal LET,VAR,DOUBLEVAL,INTVAL;
 terminal String ID,STRINGVAL,STRINGVALS,STRINGVALI,STRINGVALE;
-terminal C,S,EQ,COL,BO,BC,GO,GC,ARROW;
+terminal C,EQ,COL,BO,BC,GO,GC,ARROW;
 terminal STRING,DOUBLE,INT,FUNC,USCORE;
 terminal PLUS,MINUS,DIV,MUL;
 terminal LESS,GREATER,LESSEQ,GREATEREQ,AND,OR,EQUAL,NOT,NOTEQUAL;
@@ -594,7 +594,7 @@ start with PROG;
 PROG::= STMS {:
     if(errors==0)   System.out.println(";DEPENDENCY DECLARATIONS\ndeclare i32 @printf(i8*, ...)\ndeclare i32 @sprintf(i8*,i8*, ...)\ndeclare i8* @strcat(i8*,i8*)\ndeclare i8* @strcpy(i8*,i8*)\n@.str.newline = constant [2 x i8] c\"\\0A\\00\"\n@.str.int = constant [3 x i8] c\"%d\\00\"\n@.str.double = constant [4 x i8] c\"%lf\\00\"\n@.str.space = constant [2 x i8] c\" \\00\"\n;GLOBAL DECLARATIONS\n"
 +globalBuffer+"\n;GLOBAL INITIALIZATIONS OF GLOBAL VARIABLES THAT ARE STRINGS OR ARRAYS OF STRINGS\ndefine void @globalinit(){"+globalInitializations+"\nret void\n}\n"+outputBuffer+"\n");
-    else System.err.println("There were "+errors+"errors ("+semErrors+" semantic ones and "+synErrors+"syntax ones), here there are:\n"+ errorBuffer);
+    else System.err.println("There were "+errors+" errors ("+semErrors+" semantic ones and "+synErrors+" syntax ones):\n"+ errorBuffer);
 :} ;
 
 //declarations of variables
@@ -1667,25 +1667,25 @@ OP::= PLUS {:RESULT=operations.ADD;:} | MINUS {:RESULT=operations.SUB;:} | MUL {
 
 //statements
 
-STMS::= STMS STM | ;
+STMS::= STMS STM | STMS error {:synError("Error in statements");:} | ;
 
-STM::=DEC S | FUNCTION | error S {:synError("Error in statements");:};
+STM::=DEC | FUNCTION;
 
-CONDSTMS::= CONDSTMS CONDSTM | ;
+CONDSTMS::= CONDSTMS CONDSTM | CONDSTMS error {:synError("Error in statements inside a conditional block");:} | ;
 
-CONDSTM::= ASS S | PROC S | DEC S | WHILECOND | IFCOMPLETEBLOCK | FORCOND | RET S | BREAK S {:
+CONDSTM::= ASS | PROC | DEC | WHILECOND | IFCOMPLETEBLOCK | FORCOND | RET | BREAK {:
     if(inConditional){
         append("\nbr label %for.exit."+forloops.get(forloops.size()-1));
         getId();
     }
     else semError("Used continue statement while not in a for loop or while loop");
-:} | CONTINUE S {:
+:} | CONTINUE {:
     if(inConditional){
         append("\nbr label %for.inc."+forloops.get(forloops.size()-1));
         getId();
     }
     else semError("Used continue statement while not in a for loop or while loop");
-:} | error S {:synError("Error in statements inside a conditional block");:};
+:};
 
 PROC::= ID:name {:
     callingFunction.add(name);
@@ -2166,9 +2166,9 @@ FTYPE::= COL INOUTF:i TList:t {:t.setInout(i);t.initialized=true;RESULT=t;:};
 
 INOUTF::=INOUT {:RESULT=true;:} | {:RESULT=false;:};
 
-FSTMTS::= FSTMTS FSTM | ;
+FSTMTS::= FSTMTS FSTM | FSTMTS error {:synError("Error in statements inside a function");:} | ;
 
-FSTM::=IFCOMPLETEBLOCK | WHILECOND | FORCOND | ASS S | PROC S | DEC S | RET S | error S {:synError("Error in statements inside a function");:};
+FSTM::=IFCOMPLETEBLOCK | WHILECOND | FORCOND | ASS | PROC | DEC | RET ;
 
 RET::= RETURN EXP:e {:
     if(e!=null){
