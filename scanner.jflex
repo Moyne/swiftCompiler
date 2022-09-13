@@ -11,10 +11,10 @@ import java_cup.runtime.*;
 id=[\_a-zA-Z][\_a-zA-Z0-9]*
 int=  [0-9] | [1-9][0-9]*
 double =  ((([1-9][0-9]*\.[0-9]+ ) | (0\.[0-9]+)) (e|E('+'|'-')?[0-9]+)?)
-string= \"[^\"\(\)]*\"
-stringInterpolationStart=\"[^\"\(\)]*\\\(
-stringInterpolationIntermediate=\)[^\"\(\)]*\\\(
-stringInterpolationEnd=\)[^\"\(\)]*\"
+string= \"[^\"\\]*\"
+stringInterpolationStart=\"[^\"\\]*\\\(
+stringInterpolationIntermediate=\)[^\"\\]*\\\(
+stringInterpolationEnd=\)[^\"\\]*\"
 nl = \r|\n|\r\n
 ws = [ \t]
 %{
@@ -37,6 +37,7 @@ ws = [ \t]
 {stringInterpolationStart} { yybegin(STRINGINTERPOLATION);return symbol(sym.STRINGVALS,yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A")); }
 <STRINGINTERPOLATION> {stringInterpolationIntermediate} { return symbol(sym.STRINGVALI,yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A")); }
 <STRINGINTERPOLATION> {stringInterpolationEnd} { yybegin(YYINITIAL);return symbol(sym.STRINGVALE,yytext().substring(1,yytext().length()-1).replace("\n","\\"+"0A")); }
+"println" { return symbol(sym.PRINTLN); }
 "print" { return symbol(sym.PRINT); }
 "inout" { return symbol(sym.INOUT); }
 "String" { return symbol(sym.STRING); }
@@ -70,6 +71,9 @@ ws = [ \t]
 "<=" { return symbol(sym.LESSEQ); }
 "&&" { return symbol(sym.AND); }
 "&" { return symbol(sym.DEREF); }
+"|" { return symbol(sym.ORB); }
+"^" { return symbol(sym.XORB); }
+"~" { return symbol(sym.NOTB); } 
 "||" { return symbol(sym.OR); }
 "!" { return symbol(sym.NOT); }
 "." { return symbol(sym.DOT); }

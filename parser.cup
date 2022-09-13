@@ -38,7 +38,10 @@ parser code {:
         LSE,
         GRE,
         EQ,
-        NEQ
+        NEQ,
+        ANDB,
+        ORB,
+        XORB
     };
     public class Scope{
         public HashMap<String,Value> variables;
@@ -411,6 +414,9 @@ parser code {:
             if(integer) return "sdiv";
             else return "fdiv";
         }
+        else if(op==operations.ANDB)    return "and";
+        else if(op==operations.ORB) return "or";
+        else if(op==operations.XORB)    return "xor";
         else return "NOT SUPPORTED";
     }
     public Tuple getValue(String var){
@@ -565,8 +571,8 @@ terminal PLUS,MINUS,DIV,MUL;
 terminal LESS,GREATER,LESSEQ,GREATEREQ,AND,OR,EQUAL,NOT,NOTEQUAL;
 terminal ELIF,ELSE,IF,FOR,IN,WHILE,DOT;
 terminal QO,QC,INOUT;
-terminal PRINT,RETURN;
-terminal BREAK,CONTINUE,DEREF;
+terminal PRINT,PRINTLN,RETURN;
+terminal BREAK,CONTINUE,DEREF,ORB,XORB,NOTB;
 terminal uminus;
 
 non terminal PROG,DEC,IFCOMPLETEBLOCK,RET,ASS,STMS,STM,FUNCTION,FSTMTS,FSTM,CONDSTM,CONDSTMS,WHILECOND,FORCOND,SEP,BASESTM;
@@ -580,14 +586,14 @@ non terminal Parameter PAR;
 non terminal ArrayList<Parameter> PARlist;
 non terminal ArrayList<Attribute> CPARlist,CPAREList,EXPL,HEXPL;
 non terminal String RETVAL;
-non terminal Boolean INOUTF,DOTRANGE;
+non terminal Boolean INOUTF,DOTRANGE,PRINTP;
 non terminal Integer STRINGVALINTERP,IFCONDDEC,WHILEDEF;
 non terminal Function FUNCDef;
 non terminal ArrayDec ARRVALE,ARRVAL;
 
-precedence left PLUS,MINUS,OR;
-precedence left MUL,DIV,AND;
-precedence left uminus;
+precedence left PLUS,MINUS,OR,ORB,XORB;
+precedence left MUL,DIV,AND,DEREF;
+precedence left uminus,NOTB;
 
 start with PROG;
 
@@ -1211,7 +1217,7 @@ CPAR::= ID:name COL EXP:e {:
         }
         else    semError("Didn't expect a label for the parameter instead received "+name);
         if(p.type.inoutPar) semError("Expected an inout parameter, use the & operator");
-        if(!p.type.irDec().equals(e.type))  semError("Type mismatch in parameter passing");
+        if(!p.type.irDec().equals(e.type))  semError("Type mismatch in parameter passing for parameter named "+p.name);
         RESULT=e;
     }
 :} | EXP:e {:
@@ -1227,7 +1233,7 @@ CPAR::= ID:name COL EXP:e {:
     else{
         if(p.argLabel)  semError("Expected "+p.label+" as the label for the parameter instead the label is missing");
         if(p.type.inoutPar) semError("Expected an inout parameter, use the & operator");
-        if(!p.type.irDec().equals(e.type))  semError("Type mismatch in parameter passing");
+        if(!p.type.irDec().equals(e.type))  semError("Type mismatch in parameter passing for parameter named "+p.name);
         RESULT=e;
     }
 :} | DEREF:d EXP:e {:
@@ -1244,7 +1250,7 @@ CPAR::= ID:name COL EXP:e {:
         if(p.argLabel)  semError("Expected "+p.label+" as the label for the parameter instead the label is missing");
         if(!p.type.inoutPar)    semError("Trying to dereferenciate while the parameter is not inout");
         if(e.associatedVarName==null)   semError("An inout parameter must be always a variable");
-        if(!p.type.irDec().equals(e.type))  semError("Type mismatch in parameter passing");
+        if(!p.type.irDec().equals(e.type))  semError("Type mismatch in parameter passing for parameter named "+p.name);
         RESULT=e;
     }
 :} | ID:name COL DEREF EXP:e {:
@@ -1264,7 +1270,7 @@ CPAR::= ID:name COL EXP:e {:
         else    semError("Didn't expect a label for the parameter instead received "+name);
         if(!p.type.inoutPar)    semError("Trying to dereferenciate while the parameter is not inout");
         if(e.associatedVarName==null)   semError("An inout parameter must be always a variable");
-        if(!p.type.irDec().equals(e.type))  semError("Type mismatch in parameter passing");
+        if(!p.type.irDec().equals(e.type))  semError("Type mismatch in parameter passing for parameter named "+p.name);
         RESULT=e;
     }
 :};
@@ -1374,6 +1380,87 @@ EXP::= EXP:e PLUS EXP:a {:
         id=getCurrentId();
         RESULT=new Attribute(e.type,id);
     }
+:} | EXP:e DEREF EXP:a {:
+    if(e==null || a==null)  RESULT=null;
+    else if(!e.type.equals(a.type)){
+        semError("Type mismatch in assignment");
+        RESULT=e;
+    }
+    else if(!e.type.equals("i32")){
+        semError("Cannot apply binary operators to non integer values");
+        RESULT=e;
+    }
+    else{
+        int id;
+        if(e.immediate){
+            if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.ANDB,e.type)+" "+e.type+" "+e.immediateValue+","+a.immediateValue);
+            else append("\n%"+getId()+"= "+getIrOp(operations.ANDB,e.type)+" "+e.type+" "+e.immediateValue+","+a.getReg());
+        }
+        else{
+            if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.ANDB,e.type)+" "+e.type+" "+e.getReg()+","+a.immediateValue);
+            else append("\n%"+getId()+"= "+getIrOp(operations.ANDB,e.type)+" "+e.type+" "+e.getReg()+","+a.getReg());
+        }
+        id=getCurrentId();
+        RESULT=new Attribute(e.type,id);
+    }
+:} | EXP:e ORB EXP:a {:
+    if(e==null || a==null)  RESULT=null;
+    else if(!e.type.equals(a.type)){
+        semError("Type mismatch in assignment");
+        RESULT=e;
+    }
+    else if(!e.type.equals("i32")){
+        semError("Cannot apply binary operators to non integer values");
+        RESULT=e;
+    }
+    else{
+        int id;
+        if(e.immediate){
+            if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.ORB,e.type)+" "+e.type+" "+e.immediateValue+","+a.immediateValue);
+            else append("\n%"+getId()+"= "+getIrOp(operations.ORB,e.type)+" "+e.type+" "+e.immediateValue+","+a.getReg());
+        }
+        else{
+            if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.ORB,e.type)+" "+e.type+" "+e.getReg()+","+a.immediateValue);
+            else append("\n%"+getId()+"= "+getIrOp(operations.ORB,e.type)+" "+e.type+" "+e.getReg()+","+a.getReg());
+        }
+        id=getCurrentId();
+        RESULT=new Attribute(e.type,id);
+    }
+:} | EXP:e XORB EXP:a {:
+    if(e==null || a==null)  RESULT=null;
+    else if(!e.type.equals(a.type)){
+        semError("Type mismatch in assignment");
+        RESULT=e;
+    }
+    else if(!e.type.equals("i32")){
+        semError("Cannot apply binary operators to non integer values");
+        RESULT=e;
+    }
+    else{
+        int id;
+        if(e.immediate){
+            if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.XORB,e.type)+" "+e.type+" "+e.immediateValue+","+a.immediateValue);
+            else append("\n%"+getId()+"= "+getIrOp(operations.XORB,e.type)+" "+e.type+" "+e.immediateValue+","+a.getReg());
+        }
+        else{
+            if(a.immediate) append("\n%"+getId()+"= "+getIrOp(operations.XORB,e.type)+" "+e.type+" "+e.getReg()+","+a.immediateValue);
+            else append("\n%"+getId()+"= "+getIrOp(operations.XORB,e.type)+" "+e.type+" "+e.getReg()+","+a.getReg());
+        }
+        id=getCurrentId();
+        RESULT=new Attribute(e.type,id);
+    }
+:} | NOTB EXP:e {:
+    if(e!=null){
+        if(e.type.equals("i32")){
+            append("\n%"+getId()+" = xor i32 -1,"+e.getReg());
+            RESULT=new Attribute(e.type,getCurrentId());
+        }
+        else{
+            semError("Cannot apply binary operators to non integer values");
+            RESULT=null;
+        }
+    }
+    else RESULT=null;
 :} | BO EXP:e BC {:RESULT=e;:}
 | MINUS EXP:e {:
     if(e!=null){
@@ -1689,7 +1776,7 @@ BASESTM::= ASS | PROC | DEC | RET | BREAK {:
     else semError("Used continue statement while not in a for loop or while loop");
 :};
 
-CONDSTM::= NL | BASESTM SEP | WHILECOND NL | IFCOMPLETEBLOCK NL | FORCOND NL | error SEP {:synError("Error in statements inside a conditional block");:} | error {:synError("Missing a new line or a separator ;");:};
+CONDSTM::= NL | BASESTM SEP | WHILECOND NL | IFCOMPLETEBLOCK | FORCOND NL | error SEP {:synError("Error in statements inside a conditional block");:} | error {:synError("Missing a new line or a separator ;");:};
 
 PROC::= ID:name {:
     callingFunction.add(name);
@@ -1720,7 +1807,7 @@ PROC::= ID:name {:
         if(parOk)   semError("Calling a function that either is not declared yet or doesn't exist at all");
         RESULT=null;
     }
-:} | PRINT BO HEXPL:l BC{:
+:} | PRINTP:nln BO HEXPL:l BC{:
         l.forEach(p->{
             if(p.type.equals("i8*"))    append("\n%"+getId()+" = call i32 (i8*, ...) @printf(i8* "+p.getReg()+")");
             else if(p.type.equals("i32"))   append("\n%"+getId()+"= call i32 (i8*, ...) @printf(i8* getelementptr inbounds([3 x i8],[3 x i8]* @.str.int,i32 0,i32 0),i32 "+p.getReg()+")");
@@ -1728,8 +1815,10 @@ PROC::= ID:name {:
             else    semError("Can't print a type that is not a string, double or integer");
             append("\n%"+getId()+"= call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8],[2 x i8]* @.str.space,i32 0,i32 0))");
         });
-        append("\n%"+getId()+" = call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8], [2 x i8]* @.str.newline, i32 0, i32 0))");
+        if(nln)   append("\n%"+getId()+" = call i32 (i8*, ...) @printf(i8* getelementptr inbounds([2 x i8], [2 x i8]* @.str.newline, i32 0, i32 0))");
 :} ;
+
+PRINTP::=PRINT {: RESULT=false; :} | PRINTLN {: RESULT=true; :};
 
 CPAREList::= CPARlist:l {:RESULT=l;:} | {:
     ArrayList<Attribute> l=new ArrayList<Attribute>();
@@ -1739,38 +1828,44 @@ CPAREList::= CPARlist:l {:RESULT=l;:} | {:
 CPARlist::= CPARlist:l C CPAR:p {:
     if(p!=null){
         l.add(p);
+        int pplus=0;
         if(p.arrVar){
             if(p.arrFunc){
                 for(int i=0;i<p.dimensions.size();i++){
                     append("\n%"+getId()+"= add nsw i32 0, %"+p.dimensions.get(i));
                     l.add(new Attribute("i32",getCurrentId()));
                 }
-                callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+p.dimensions.size());
+                pplus=p.dimensions.size();
             }
             else{
                 for(int i=0;i<p.dimensionsInt.size();i++)  l.add(new Attribute(p.dimensionsInt.get(i),"i32"));
-                callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+p.dimensionsInt.size());
+                pplus=p.dimensionsInt.size();
             }
         }
+        if(pplus==0) pplus++;
+        callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+pplus);
     }
     RESULT=l;
 :} | CPAR:p{:
     ArrayList<Attribute> l=new ArrayList<Attribute>();
     if(p!=null){
         l.add(p);
+        int pplus=0;
         if(p.arrVar){
             if(p.arrFunc){
                 for(int i=0;i<p.dimensions.size();i++){
                     append("\n%"+getId()+"= load i32,i32* "+p.dimensions.get(i));
                     l.add(new Attribute("i32",getCurrentId()));
                 }
-                callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+p.dimensions.size());
+                pplus=p.dimensions.size();
             }
             else{
                 for(int i=0;i<p.dimensionsInt.size();i++)  l.add(new Attribute(p.dimensionsInt.get(i),"i32"));
-                callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+p.dimensionsInt.size());
+                pplus=p.dimensionsInt.size();
             }
         }
+        if(pplus==0) pplus++;
+        callingFunctionPar.set(callingFunctionPar.size()-1,callingFunctionPar.get(callingFunctionPar.size()-1)+pplus);
     }
     RESULT=l;
 :} | CPARlist:l C error {:
@@ -1781,11 +1876,11 @@ CPARlist::= CPARlist:l C CPAR:p {:
 
 //control loop blocks
 
-IFCOMPLETEBLOCK::= IFCC:ifc {:
+IFCOMPLETEBLOCK::= IFCC:ifc NL {:
     append("\nif.elif."+ifc.type+"."+ifc.regId+":");
     append("\nbr label %if.exit."+ifc.type+".0");
     append("\nif.exit."+ifc.type+".0:");
-:} | IFCC:ifc ELSE {:
+:} | IFCC:ifc NL ELSE {:
     append("\nif.elif."+ifc.type+"."+ifc.regId+":");
     scopes.add(new Scope());
 :} GO CONDSTMS GC {:
@@ -1794,7 +1889,7 @@ IFCOMPLETEBLOCK::= IFCC:ifc {:
     scopes.remove(scopes.size()-1);
 :} | error ELSE GO CONDSTMS GC{:synError("Error in if block");:};
 
-IFCC::= IFCC:ifc ELIF {:
+IFCC::= IFCC:ifc NL ELIF {:
     append("\nif.elif."+ifc.type+"."+ifc.regId+":");
 :} COND:cond {:
     append("\nbr i1 "+cond.getReg()+", label %if.body."+ifc.type+"."+ifc.regId+", label %if.elif."+ifc.type+"."+(ifc.regId+1));
@@ -2075,6 +2170,12 @@ FUNCTION::=FUNCDef:f GO FSTMTS GC {:
         if(!f.returned){
             if(f.retType.equals("void"))    f.functionOutput.append("\nret void");
             else    semError("Didn't have a return statement and function isn't of type void");
+        }
+        else{
+            if(f.retType.equals("i32")) f.functionOutput.append("\nret i32 -1");
+            else if(f.retType.equals("double"))  f.functionOutput.append("\nret double -1.0");
+            else if(f.retType.equals("i8*"))    f.functionOutput.append("\nret i8* getelementptr inbounds([2 x i8],[2 x i8]* @.str.space,i32 0,i32 0)");
+            else f.functionOutput.append("ret void");
         }
         outputBuffer.append("{"+f.functionOutput+"\n}");
         inFunction=false;
