@@ -583,7 +583,7 @@ non terminal Value TYPE,TList,T,FTYPE;
 non terminal Attribute VAL,ATTR,EXP,PROC,STR,IDARR,CPAR,IFCC,IFCOND,CONDATTR,COND;
 non terminal operations OP,CONDOP;
 non terminal Parameter PAR;
-non terminal ArrayList<Parameter> PARlist;
+non terminal ArrayList<Parameter> PARlist,PARElist;
 non terminal ArrayList<Attribute> CPARlist,CPAREList,EXPL,HEXPL;
 non terminal String RETVAL;
 non terminal Boolean INOUTF,DOTRANGE,PRINTP;
@@ -2189,7 +2189,7 @@ FUNCDef::=FUNC ID:name {:
     functionName=name;
     Function f=new Function(name);
     functions.put(name,f);
-:} BO PARlist:l BC RETVAL:r{:
+:} BO PARElist:l BC RETVAL:r{:
     Function f=functions.get(name);
     outputBuffer.append("\ndefine "+r+" @"+name+" ("+l.stream().map(e->e.type.irDec()+" %"+e.name).collect(Collectors.joining(","))+")");
     f.setPars(l);
@@ -2220,6 +2220,8 @@ FUNCDef::=FUNC ID:name {:
 :} | error RETVAL {:synError("Error in function declaration, missing name and parameters");RESULT=null;:};
 
 RETVAL::=ARROW T:t {:RESULT=t.irDec();:}| {:RESULT="void";:};
+
+PARElist::=PARlist:l {:RESULT=l;:} | {:RESULT=new ArrayList<Parameter>();:};
 
 PARlist::= PARlist:l C PAR:p {:
     l.add(p);
@@ -2253,9 +2255,6 @@ PARlist::= PARlist:l C PAR:p {:
         }
         if(dim>1) functions.get(functionName).arrayNum++;
     }
-    RESULT=l;
-:} | {:
-    ArrayList<Parameter> l=new ArrayList<Parameter>();
     RESULT=l;
 :} | PARlist:l C error {:
     synError("Error in parameter specification");
