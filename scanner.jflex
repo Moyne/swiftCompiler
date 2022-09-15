@@ -11,10 +11,10 @@ import java_cup.runtime.*;
 id=[\_a-zA-Z][\_a-zA-Z0-9]*
 int=  [0-9] | [1-9][0-9]*
 double =  ((([1-9][0-9]*\.[0-9]+ ) | (0\.[0-9]+)) (e|E('+'|'-')?[0-9]+)?)
-string= \"[^\"\\]*\"
-stringInterpolationStart=\"[^\"\\]*\\\(
-stringInterpolationIntermediate=\)[^\"\\]*\\\(
-stringInterpolationEnd=\)[^\"\\]*\"
+string= \"([^\"\\]|(\\n))*\"
+stringInterpolationStart=\"([^\"\\]|(\\n))*\\\(
+stringInterpolationIntermediate=\)([^\"\\]|(\\n))*\\\(
+stringInterpolationEnd=\)([^\"\\]|(\\n))*\"
 nl = \r|\n|\r\n
 ws = [ \t]
 %{

@@ -3,6 +3,7 @@ declare i32 @printf(i8*, ...)
 declare i32 @sprintf(i8*,i8*, ...)
 declare i8* @strcat(i8*,i8*)
 declare i8* @strcpy(i8*,i8*)
+declare i32 @strcmp(i8*,i8*)
 @.str.newline = constant [2 x i8] c"\0A\00"
 @.str.int = constant [3 x i8] c"%d\00"
 @.str.double = constant [4 x i8] c"%lf\00"

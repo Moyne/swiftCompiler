@@ -584,7 +584,7 @@ non terminal Attribute VAL,ATTR,EXP,PROC,STR,IDARR,CPAR,IFCC,IFCOND,CONDATTR,CON
 non terminal operations OP,CONDOP;
 non terminal Parameter PAR;
 non terminal ArrayList<Parameter> PARlist,PARElist;
-non terminal ArrayList<Attribute> CPARlist,CPAREList,EXPL,HEXPL;
+non terminal ArrayList<Attribute> CPARlist,CPAREList,EXPL,HEXPL,HEXPLE;
 non terminal String RETVAL;
 non terminal Boolean INOUTF,DOTRANGE,PRINTP;
 non terminal Integer STRINGVALINTERP,IFCONDDEC,WHILEDEF;
@@ -598,7 +598,8 @@ precedence left uminus,NOTB;
 start with PROG;
 
 PROG::= STMS {:
-    if(errors==0)   System.out.println(";DEPENDENCY DECLARATIONS\ndeclare i32 @printf(i8*, ...)\ndeclare i32 @sprintf(i8*,i8*, ...)\ndeclare i8* @strcat(i8*,i8*)\ndeclare i8* @strcpy(i8*,i8*)\n@.str.newline = constant [2 x i8] c\"\\0A\\00\"\n@.str.int = constant [3 x i8] c\"%d\\00\"\n@.str.double = constant [4 x i8] c\"%lf\\00\"\n@.str.space = constant [2 x i8] c\" \\00\"\n;GLOBAL DECLARATIONS\n"
+    if(!functions.containsKey("main"))  semError("There isn't any function main");
+    if(errors==0)   System.out.println(";DEPENDENCY DECLARATIONS\ndeclare i32 @printf(i8*, ...)\ndeclare i32 @sprintf(i8*,i8*, ...)\ndeclare i8* @strcat(i8*,i8*)\ndeclare i8* @strcpy(i8*,i8*)\ndeclare i32 @strcmp(i8*,i8*)\n@.str.newline = constant [2 x i8] c\"\\0A\\00\"\n@.str.int = constant [3 x i8] c\"%d\\00\"\n@.str.double = constant [4 x i8] c\"%lf\\00\"\n@.str.space = constant [2 x i8] c\" \\00\"\n;GLOBAL DECLARATIONS\n"
 +globalBuffer+"\n;GLOBAL INITIALIZATIONS OF GLOBAL VARIABLES THAT ARE STRINGS OR ARRAYS OF STRINGS\ndefine void @globalinit(){"+globalInitializations+"\nret void\n}\n"+outputBuffer+"\n");
     else System.err.println("There were "+errors+" errors ("+semErrors+" semantic ones and "+synErrors+" syntax ones):\n"+ errorBuffer);
 :} ;
@@ -865,13 +866,14 @@ VAL::= DOUBLEVAL:v {:RESULT=new Attribute(v,"double");:}| INTVAL:v {:RESULT=new 
 
 STR::= STRINGVAL:s {:
     int len=s.length()+1;
-    int indexs=0;
+    int indexs=-2;
     while(indexs!=(-1)){
-        if(indexs!=0){
+        if(indexs!=(-2)){
             len--;
             indexs+=2;
+            indexs=s.indexOf("\\n",indexs);
         }
-        indexs=s.indexOf("\\n",indexs);
+        else indexs=s.indexOf("\\n",0);
     }
     s=s.replace("\\n", "\\0A");
     globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+len+" x i8] c\""+s+"\\00\"");
@@ -888,23 +890,25 @@ STR::= STRINGVAL:s {:
     }
 :}| STRINGVALS:s STRINGVALINTERP:i STRINGVALE:e{:
     int lens=s.length()+1;
-    int indexs=0;
+    int indexs=-2;
     while(indexs!=(-1)){
-        if(indexs!=0){
+        if(indexs!=(-2)){
             lens--;
             indexs+=2;
+            indexs=s.indexOf("\\n",indexs);
         }
-        indexs=s.indexOf("\\n",indexs);
+        else indexs=s.indexOf("\\n",0);
     }
     s=s.replace("\\n", "\\0A");
     int lene=e.length()+1;
-    int indexe=0;
+    int indexe=-2;
     while(indexe!=(-1)){
-        if(indexe!=0){
+        if(indexe!=(-2)){
             lene--;
             indexe+=2;
+            indexe=e.indexOf("\\n",indexe);
         }
-        indexe=e.indexOf("\\n",indexe);
+        else    indexe=e.indexOf("\\n",0);
     }
     e=e.replace("\\n", "\\0A");
     globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+lens+" x i8] c\""+s+"\\00\"");
@@ -924,13 +928,14 @@ STR::= STRINGVAL:s {:
 STRINGVALINTERP::= STRINGVALINTERP:i STRINGVALI:s EXP:e {:
     int expPointer,expGep,finalArrPointer,finalGepPointer;
     int len=s.length()+1;
-    int indexs=0;
+    int indexs=-2;
     while(indexs!=(-1)){
-        if(indexs!=0){
+        if(indexs!=(-2)){
             len--;
             indexs+=2;
+            indexs=s.indexOf("\\n",indexs);
         }
-        indexs=s.indexOf("\\n",indexs);
+        else    indexs=s.indexOf("\\n",0);
     }
     s=s.replace("\\n", "\\0A");
     globalBuffer.append("\n@.str."+(++stringIndex)+" = constant ["+len+" x i8] c\""+s+"\\00\"");
@@ -1014,6 +1019,8 @@ ARRVAL::= QO EXPL:l QC {:
     RESULT=new ArrayDec("["+l.size()+" x "+l.get(0).type+"]",l,true,allImmediates);
 :};
 
+HEXPLE::= HEXPL:l {:RESULT=l;:} | {:RESULT=new ArrayList<Attribute>();:};
+
 HEXPL::= HEXPL:l C EXP:e {:
     if(e!=null) l.add(e);
     RESULT=l;
@@ -1022,12 +1029,9 @@ HEXPL::= HEXPL:l C EXP:e {:
     if(e!=null) l.add(e);
     RESULT=l;
 :} | HEXPL:l C error{:
-    synError("Error in attribute list of print instruction");
+    synError("Error in attribute list");
     RESULT=l;
-:} | {:
-    ArrayList<Attribute> l=new ArrayList<Attribute>();
-    RESULT=l;
-:};
+:} ;
 
 EXPL::= EXPL:l C EXP:e {:
     if(e!=null){
@@ -1039,7 +1043,7 @@ EXPL::= EXPL:l C EXP:e {:
     ArrayList<Attribute> l=new ArrayList<Attribute>();
     if(e!=null) l.add(e);
     RESULT=l;
-:} | {:RESULT=new ArrayList<Attribute>();:} | EXPL:l C error {:
+:} | EXPL:l C error {:
     synError("Error inside an array attribute");
     RESULT=l;
 :} ;
@@ -1059,14 +1063,10 @@ ASS::= ID:a EQ EXP:e {:
     Tuple t=getValue(a);
     Value v=null;
     if(t!=null){
-        if(t.value.initialized && t.name.equals("let")){
-            semError("Constant "+a+" has already been assigned");
-            RESULT=null;
-        }
+        if(t.value.initialized && t.name.equals("let")) semError("Constant "+a+" has already been assigned");
         else    v=t.value;
     }
-    if(v==null || e==null)  RESULT=null;
-    else{
+    if(v!=null && e!=null){
         String type=v.irDec();
         if(v.inoutPar && !v.array)  type=v.getBaseType();
         if(!e.type.equals(type))    semError("Type mismatch in assignment");
@@ -1083,27 +1083,24 @@ ASS::= ID:a EQ EXP:e {:
         }
     }
 :} | IDARR:a EQ EXP:e {:
-    if(a==null || e==null)  RESULT=null;
-    else{
+    if(a!=null && e!=null){
         Tuple t=getValue(a.associatedVarName);
         Value v=null;
         if(t!=null){
-            if(t.name.equals("let") && t.value.initialized){
-                semError("Constant "+a.associatedVarName+" has already been assigned");
-                RESULT=null;
-            }
+            if(t.name.equals("let") && t.value.initialized) semError("Constant "+a.associatedVarName+" has already been assigned");
             else v=t.value;
         }
-        if(v==null) RESULT=null;
-        else if(!e.type.equals(a.type)) semError("Type mismatch in assignment");
-        else{
-            if(e.type.equals("i8*")){
-                append("\n%"+getId()+"= load i8*,i8** "+a.getReg());
-                int idA=getCurrentId();
-                append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idA+",i8* "+e.getReg()+")");
-            }
+        if(v!=null){
+            if(!e.type.equals(a.type)) semError("Type mismatch in assignment");
             else{
-                append("\nstore "+e.type+" "+e.getReg()+","+e.type+"* "+a.getReg());
+                if(e.type.equals("i8*")){
+                    append("\n%"+getId()+"= load i8*,i8** "+a.getReg());
+                    int idA=getCurrentId();
+                    append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idA+",i8* "+e.getReg()+")");
+                }
+                else{
+                    append("\nstore "+e.type+" "+e.getReg()+","+e.type+"* "+a.getReg());
+                }
             }
         }
     }
@@ -1111,76 +1108,23 @@ ASS::= ID:a EQ EXP:e {:
     Tuple t=getValue(a);
     Value v=null;
     if(t!=null){
-        if(t.name.equals("let")){
-            semError("Constants like "+a+" cannot be used with += -= *= /= operators");
-            RESULT=null;
-        }
+        if(t.name.equals("let"))    semError("Constants like "+a+" cannot be used with += -= *= /= operators");
         else v=t.value;
     }
-    if(v==null || e==null) RESULT=null;
-    else if(!v.initialized){
-        semError("Variable "+a+" hasn't been initialized yet so it cannot be used with += -= *= /= operators");
-        RESULT=null;
-    }
-    else if(!e.type.equals(v.irDec())){
-        semError("Type mismatch in assignment");
-        RESULT=null;
-    }
-    //System.out.println("\n\tInside ASSIGNMENT;  with exp: "+e.type+" and id of type: "+type);
-    else{
+    if(v!=null && e!=null){
         String type=v.irDec();
-        if(type.equals("i8*")){
-            if(op==operations.ADD){
-                append("\n%"+getId()+"= alloca [200 x i8]");
-                int newArr=getCurrentId();
-                append("\n%"+getId()+"= getelementptr inbounds [200 x i8],[200 x i8]* %"+newArr+",i32 0, i32 0");
-                int idPointer=getCurrentId();
-                append("\n%"+getId()+"= load i8*,i8** "+v.getReg());
-                int idA=getCurrentId();
-                append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idPointer+",i8* %"+idA+")");
-                append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+idPointer+",i8* "+e.getReg()+")");
-                append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idA+",i8* %"+idPointer+")");
-            }
-            else semError("only operation allowed on string is the add");
-        }
+        if(v.inoutPar && !v.array)  type=v.getBaseType();
+        if(!v.initialized)  semError("Variable "+a+" hasn't been initialized yet so it cannot be used with += -= *= /= operators");
+        else if(!e.type.equals(type))   semError("Type mismatch in assignment");
+        //System.out.println("\n\tInside ASSIGNMENT;  with exp: "+e.type+" and id of type: "+type);
         else{
-            int id;
-            append("\n%"+getId()+"= load "+type+","+type+"* "+v.getReg());
-            id=getCurrentId();
-            append("\n%"+getId()+" = "+getIrOp(op,e.type)+" "+e.type+" %"+id+","+e.getReg());
-            append("\nstore "+e.type+" %"+getCurrentId()+","+e.type+"* "+v.getReg());
-        }
-    }
-:} | IDARR:a OP:op EQ EXP:e {:
-    if(a==null || e==null)  RESULT=null;
-    else{
-        Tuple t=getValue(a.associatedVarName);
-        Value v=null;
-        if(t!=null){
-            if(t.name.equals("let")){
-                semError("Constants like "+a.associatedVarName+" cannot be used with += -= *= /= operators");
-                RESULT=null;
-            }
-            else{
-                v=t.value;
-                if(!t.value.initialized){
-                    semError("Variable "+a.associatedVarName+" hasn't ben assigned yet");
-                    v=null;
-                    RESULT=null;
-                }
-            }
-        }
-        if(v==null) RESULT=null;
-        else if(!e.type.equals(a.type)) semError("Type mismatch in assignment");
-        else{
-            String type=a.type;
             if(type.equals("i8*")){
                 if(op==operations.ADD){
                     append("\n%"+getId()+"= alloca [200 x i8]");
                     int newArr=getCurrentId();
                     append("\n%"+getId()+"= getelementptr inbounds [200 x i8],[200 x i8]* %"+newArr+",i32 0, i32 0");
                     int idPointer=getCurrentId();
-                    append("\n%"+getId()+"= load i8*,i8** "+a.getReg());
+                    append("\n%"+getId()+"= load i8*,i8** "+v.getReg());
                     int idA=getCurrentId();
                     append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idPointer+",i8* %"+idA+")");
                     append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+idPointer+",i8* "+e.getReg()+")");
@@ -1190,10 +1134,52 @@ ASS::= ID:a EQ EXP:e {:
             }
             else{
                 int id;
-                append("\n%"+getId()+"= load "+type+","+type+"* "+a.getReg());
+                append("\n%"+getId()+"= load "+type+","+type+"* "+v.getReg());
                 id=getCurrentId();
                 append("\n%"+getId()+" = "+getIrOp(op,e.type)+" "+e.type+" %"+id+","+e.getReg());
-                append("\nstore "+e.type+" %"+getCurrentId()+","+e.type+"* "+a.getReg());
+                append("\nstore "+e.type+" %"+getCurrentId()+","+e.type+"* "+v.getReg());
+            }
+        }
+    }
+:} | IDARR:a OP:op EQ EXP:e {:
+    if(a!=null && e!=null){
+        Tuple t=getValue(a.associatedVarName);
+        Value v=null;
+        if(t!=null){
+            if(t.name.equals("let"))    semError("Constants like "+a.associatedVarName+" cannot be used with += -= *= /= operators");
+            else{
+                v=t.value;
+                if(!t.value.initialized){
+                    semError("Variable "+a.associatedVarName+" hasn't ben assigned yet");
+                    v=null;
+                }
+            }
+        }
+        if(v!=null){
+            if(!e.type.equals(a.type)) semError("Type mismatch in assignment");
+            else{
+                String type=a.type;
+                if(type.equals("i8*")){
+                    if(op==operations.ADD){
+                        append("\n%"+getId()+"= alloca [200 x i8]");
+                        int newArr=getCurrentId();
+                        append("\n%"+getId()+"= getelementptr inbounds [200 x i8],[200 x i8]* %"+newArr+",i32 0, i32 0");
+                        int idPointer=getCurrentId();
+                        append("\n%"+getId()+"= load i8*,i8** "+a.getReg());
+                        int idA=getCurrentId();
+                        append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idPointer+",i8* %"+idA+")");
+                        append("\n%"+getId()+" = call i8* (i8*,i8*) @strcat(i8* %"+idPointer+",i8* "+e.getReg()+")");
+                        append("\n%"+getId()+" = call i8* (i8*,i8*) @strcpy(i8* %"+idA+",i8* %"+idPointer+")");
+                    }
+                    else semError("only operation allowed on string is the add");
+                }
+                else{
+                    int id;
+                    append("\n%"+getId()+"= load "+type+","+type+"* "+a.getReg());
+                    id=getCurrentId();
+                    append("\n%"+getId()+" = "+getIrOp(op,e.type)+" "+e.type+" %"+id+","+e.getReg());
+                    append("\nstore "+e.type+" %"+getCurrentId()+","+e.type+"* "+a.getReg());
+                }
             }
         }
     }
@@ -1758,7 +1744,7 @@ OP::= PLUS {:RESULT=operations.ADD;:} | MINUS {:RESULT=operations.SUB;:} | MUL {
 
 STMS::= STMS STM | ;
 
-STM::=BASESTM SEP | NL | FUNCTION | error SEP {:synError("Error in statements");:} | error {:synError("Missing a new line or a separator ;");:};
+STM::=BASESTM SEP | NL | FUNCTION | error SEP {:synError("Error in statements");:} ;
 
 CONDSTMS::= CONDSTMS CONDSTM | ;
 
@@ -1774,9 +1760,9 @@ BASESTM::= ASS | PROC | DEC | RET | BREAK {:
         getId();
     }
     else semError("Used continue statement while not in a for loop or while loop");
-:};
+:} | error BASESTM {:synError("Error before the statement");:};
 
-CONDSTM::= NL | BASESTM SEP | WHILECOND NL | IFCOMPLETEBLOCK | FORCOND NL | error SEP {:synError("Error in statements inside a conditional block");:} | error {:synError("Missing a new line or a separator ;");:};
+CONDSTM::= NL | BASESTM SEP | WHILECOND NL | IFCOMPLETEBLOCK | FORCOND NL | error SEP {:synError("Error in statements inside a conditional block");:} ;
 
 PROC::= ID:name {:
     callingFunction.add(name);
@@ -1807,7 +1793,7 @@ PROC::= ID:name {:
         if(parOk)   semError("Calling a function that either is not declared yet or doesn't exist at all");
         RESULT=null;
     }
-:} | PRINTP:nln BO HEXPL:l BC{:
+:} | PRINTP:nln BO HEXPLE:l BC{:
         l.forEach(p->{
             if(p.type.equals("i8*"))    append("\n%"+getId()+" = call i32 (i8*, ...) @printf(i8* "+p.getReg()+")");
             else if(p.type.equals("i32"))   append("\n%"+getId()+"= call i32 (i8*, ...) @printf(i8* getelementptr inbounds([3 x i8],[3 x i8]* @.str.int,i32 0,i32 0),i32 "+p.getReg()+")");
@@ -2153,8 +2139,15 @@ error AND COND {:synError("Error in conditional expression");RESULT=new Attribut
 CONDATTR::= EXP:a CONDOP:cond EXP:b {:
     if(a==null || b==null) RESULT=new Attribute("i1",getCurrentId());
     else{
-        if(!b.type.equals("double"))  append("\n%"+getId()+"= icmp "+getCondIrOp(cond,true)+" "+a.type+" "+a.getReg()+","+b.getReg());
-        else append("\n%"+getId()+"= fcmp "+getCondIrOp(cond,false)+" "+a.type+" "+a.getReg()+","+b.getReg());
+        if(!a.type.equals(b.type)) semError("Type mismatch in comparison");
+        if(a.type.equals("i8*")){
+            append("\n%"+getId()+"= call i32 (i8*,i8*) @strcmp(i8* "+a.getReg()+",i8* "+b.getReg()+")");
+            int compReg=getCurrentId();
+            append("\n%"+getId()+"= icmp "+getCondIrOp(cond,true)+" i32 %"+compReg+",0");
+        }
+        else if(b.type.equals("i32"))  append("\n%"+getId()+"= icmp "+getCondIrOp(cond,true)+" "+a.type+" "+a.getReg()+","+b.getReg());
+        else if(b.type.equals("double")) append("\n%"+getId()+"= fcmp "+getCondIrOp(cond,false)+" "+a.type+" "+a.getReg()+","+b.getReg());
+        else semError("Cannot compare aggregate attributes");
         RESULT=new Attribute("i1",getCurrentId());
     }
 :}| EXP:a {:if(a!=null)RESULT=a; else RESULT=new Attribute(-1,"i32");:}
@@ -2272,7 +2265,7 @@ INOUTF::=INOUT {:RESULT=true;:} | {:RESULT=false;:};
 
 FSTMTS::= FSTMTS FSTM | ;
 
-FSTM::=IFCOMPLETEBLOCK | WHILECOND | FORCOND | BASESTM SEP | NL | error SEP {:synError("Error in statements inside a function");:} | error {:synError("Missing a new line or a separator ;");:};
+FSTM::=IFCOMPLETEBLOCK | WHILECOND | FORCOND | BASESTM SEP | NL | error SEP {:synError("Error in statements inside a function");:};
 
 RET::= RETURN EXP:e {:
     if(!inFunction) semError("Return function while not inside a function");
