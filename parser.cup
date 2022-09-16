@@ -635,9 +635,12 @@ l.forEach(a->{
             }
         }
         else globalBuffer.append("\n@"+a+" = global "+t.irDec()+" zeroinitializer");
-        Value v=new Value(t);
-        v.setReg(a);
-        scopes.get(scopes.size()-1).constants.put(a,v);
+        if(!scopes.get(scopes.size()-1).constants.containsKey(a) && !scopes.get(scopes.size()-1).variables.containsKey(a)){
+            Value v=new Value(t);
+            v.setReg(a);
+            scopes.get(scopes.size()-1).constants.put(a,v);
+        }
+        else semError("Value "+a+" have been already declared in this scope");
     }
     else{
         int id=getId();
@@ -662,9 +665,12 @@ l.forEach(a->{
                 else    append("\nstore "+t.irDec()+" "+att.getReg()+","+t.irDec()+"* %"+id);
             }
         }
-        Value v=new Value(t);
-        v.setReg(id);
-        scopes.get(scopes.size()-1).constants.put(a,v);
+        if(!scopes.get(scopes.size()-1).constants.containsKey(a) && !scopes.get(scopes.size()-1).variables.containsKey(a)){
+            Value v=new Value(t);
+            v.setReg(id);
+            scopes.get(scopes.size()-1).constants.put(a,v);
+        }
+        else semError("Value "+a+" have been already declared in this scope");
     }
 });:} | VAR IDlist:l TYPE:t {: 
 l.forEach(a->{
@@ -688,16 +694,19 @@ l.forEach(a->{
                 else{
                     globalBuffer.append("\n@"+a+".arr = global [200 x i8] zeroinitializer");
                     globalBuffer.append("\n@"+a+" = global i8* getelementptr inbounds([200 x i8],[200 x i8]* @"+a+".arr,i32 0,i32 0)");
-                    globalInitializations.append("\n%"+(++globalInitializationsId)+" load i8*,i8** @"+a);
+                    globalInitializations.append("\n%"+(++globalInitializationsId)+"= load i8*,i8** @"+a);
                     int strptr=globalInitializationsId;
                     globalInitializations.append("\n%"+(++globalInitializationsId)+" = call i8* (i8*,i8*) @strcpy(i8* %"+strptr+",i8* %"+att.regId+")");
                 }
             }
         }
         else globalBuffer.append("\n@"+a+" = global "+t.irDec()+" zeroinitializer");
-        Value v=new Value(t);
-        v.setReg(a);
-        scopes.get(scopes.size()-1).variables.put(a,v);
+        if(!scopes.get(scopes.size()-1).constants.containsKey(a) && !scopes.get(scopes.size()-1).variables.containsKey(a)){
+            Value v=new Value(t);
+            v.setReg(a);
+            scopes.get(scopes.size()-1).variables.put(a,v);
+        }
+        else semError("Value "+a+" have been already declared in this scope");
     }
     else{
         int id=getId();
@@ -722,14 +731,23 @@ l.forEach(a->{
                 else    append("\nstore "+t.irDec()+" "+att.getReg()+","+t.irDec()+"* %"+id);
             }
         }
-        Value v=new Value(t);
-        v.setReg(id);
-        scopes.get(scopes.size()-1).variables.put(a,v);
+        if(!scopes.get(scopes.size()-1).constants.containsKey(a) && !scopes.get(scopes.size()-1).variables.containsKey(a)){
+            Value v=new Value(t);
+            v.setReg(id);
+            scopes.get(scopes.size()-1).variables.put(a,v);
+        }
+        else semError("Value "+a+" have been already declared in this scope");
     }
 });:} | LET IDINITlist:l {:
-    scopes.get(scopes.size()-1).constants.putAll(l);
+    l.forEach((k,v)->{
+        if(!scopes.get(scopes.size()-1).constants.containsKey(k) && !scopes.get(scopes.size()-1).variables.containsKey(k))  scopes.get(scopes.size()-1).constants.put(k,v);
+        else semError("Value "+k+" have been already declared in this scope");
+    });
 :} | VAR IDINITlist:l {:
-    scopes.get(scopes.size()-1).variables.putAll(l);
+    l.forEach((k,v)->{
+        if(!scopes.get(scopes.size()-1).constants.containsKey(k) && !scopes.get(scopes.size()-1).variables.containsKey(k))  scopes.get(scopes.size()-1).variables.put(k,v);
+        else semError("Value "+k+" have been already declared in this scope");
+    });
 :} | LET error {:synError("Error in constant declaration");:} | VAR error {:synError("Error in variable declaration");:} | LET IDlist error {:synError("Error in constant declaration,type annotation missing");:} | VAR IDlist error {:synError("Error in variable declaration,type annotation missing");:} ;
 
 IDlist::= IDlist:l C ID:x {: ArrayList<String> arr= new ArrayList<String>(l);
@@ -776,7 +794,7 @@ INIT::= ID:i EQ EXP:l {:
                 if(l.type.equals("i8*") && l.immediate){
                     globalBuffer.append("\n@"+i+".arr = global [200 x i8] zeroinitializer");
                     globalBuffer.append("\n@"+i+" = global i8* getelementptr inbounds([200 x i8],[200 x i8]* @"+i+".arr,i32 0,i32 0)");
-                    globalInitializations.append("\n%"+(++globalInitializationsId)+" load i8*,i8** @"+i);
+                    globalInitializations.append("\n%"+(++globalInitializationsId)+"= load i8*,i8** @"+i);
                     int strptr=globalInitializationsId;
                     globalInitializations.append("\n%"+(++globalInitializationsId)+" = call i8* (i8*,i8*) @strcpy(i8* %"+strptr+",i8* %"+l.regId+")");
                     Value v=new Value(l.type);
@@ -2185,6 +2203,10 @@ FUNCDef::=FUNC ID:name {:
 :} BO PARElist:l BC RETVAL:r{:
     Function f=functions.get(name);
     outputBuffer.append("\ndefine "+r+" @"+name+" ("+l.stream().map(e->e.type.irDec()+" %"+e.name).collect(Collectors.joining(","))+")");
+    if(r.equals("i8*")){
+        globalBuffer.append("\n@.str."+name+".ret.arr = global [200 x i8] zeroinitializer");
+        globalBuffer.append("\n@.str."+name+".ret = global i8* getelementptr inbounds([200 x i8],[200 x i8]* @.str."+name+".ret.arr,i32 0,i32 0)");
+    }
     f.setPars(l);
     f.setRet(r);
     f.scope=new Scope();
@@ -2196,17 +2218,23 @@ FUNCDef::=FUNC ID:name {:
             Value v=new Value(e.type);
             v.setReg(f.regId);
             f.functionOutput.append("\nstore "+e.type.irDec()+" %"+e.name+", "+e.type.irDec()+"* %"+f.regId);
-            if(e.type.inoutPar) f.scope.variables.put(e.name,v);
-            else    f.scope.constants.put(e.name,v);
+            if(!f.scope.constants.containsKey(e.name) && !f.scope.variables.containsKey(e.name)){
+                if(e.type.inoutPar) f.scope.variables.put(e.name,v);
+                else    f.scope.constants.put(e.name,v);
+            }
+            else semError("Parameter with the same name already declared");
         }
         else{
             f.functionOutput.append("\n%"+(++f.regId)+" = alloca "+e.type.irDec());
             int reg=f.regId;
             f.functionOutput.append("\nstore "+e.type.irDec()+" %"+e.name+", "+e.type.irDec()+"* %"+f.regId);
             f.functionOutput.append("\n%"+(++f.regId)+" = load "+e.type.irDec()+","+e.type.irDec()+"* %"+reg);
-            Value v=new Value(e.type);
-            v.setReg(f.regId);
-            f.scope.variables.put(e.name,v);
+            if(!f.scope.constants.containsKey(e.name) && !f.scope.variables.containsKey(e.name)){
+                Value v=new Value(e.type);
+                v.setReg(f.regId);
+                f.scope.variables.put(e.name,v);
+            }
+            else semError("Parameter with the same name already declared");
         }
     });
     RESULT=f;
@@ -2272,7 +2300,13 @@ RET::= RETURN EXP:e {:
     if(e!=null){
         Function f=functions.get(functionName);
         if(f.retType.equals(e.type)){
-            f.functionOutput.append("\nret "+e.type+" "+e.getReg());
+            if(e.type.equals("i8*")){
+                f.functionOutput.append("\n%"+getId()+"= load i8*,i8** @.str."+functionName+".ret");
+                int idLoad=getCurrentId();
+                f.functionOutput.append("\n%"+getId()+"= call i8* (i8*,i8*) @strcpy(i8* %"+idLoad+",i8* "+e.getReg()+")");
+                f.functionOutput.append("\nret i8* %"+idLoad);
+            }
+            else    f.functionOutput.append("\nret "+e.type+" "+e.getReg());
             f.returned=true;
             getId();
         }
