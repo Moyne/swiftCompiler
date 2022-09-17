@@ -1,5 +1,5 @@
 let stgl="wow"
-let globArrStr=[[["wow","you are"],["so","kind"]],[["how is","this possible"],["thank you","very much"]]]
+let globArrStr=[[["glob [0][0][0]","glob [0][0][1]"],["glob [0][1][0]","glob [0][1][1]"]],[["glob [1][0][0]","glob [1][0][1]"],["glob [1][1][0]","glob [1][1][1]"]]]
 func strtest(_ a: Int) -> String {
     if a==0{
         let st=stgl+" it works"

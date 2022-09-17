@@ -13,23 +13,23 @@ declare i32 @strcmp(i8*,i8*)
 @.str.0 = constant [4 x i8] c"wow\00"
 @stgl.arr = global [200 x i8] zeroinitializer
 @stgl = global i8* getelementptr inbounds([200 x i8],[200 x i8]* @stgl.arr,i32 0,i32 0)
-@.str.1 = constant [4 x i8] c"wow\00"
-@.str.2 = constant [8 x i8] c"you are\00"
-@.str.3 = constant [3 x i8] c"so\00"
-@.str.4 = constant [5 x i8] c"kind\00"
-@.str.5 = constant [7 x i8] c"how is\00"
-@.str.6 = constant [14 x i8] c"this possible\00"
-@.str.7 = constant [10 x i8] c"thank you\00"
-@.str.8 = constant [10 x i8] c"very much\00"
+@.str.1 = constant [15 x i8] c"glob [0][0][0]\00"
+@.str.2 = constant [15 x i8] c"glob [0][0][1]\00"
+@.str.3 = constant [15 x i8] c"glob [0][1][0]\00"
+@.str.4 = constant [15 x i8] c"glob [0][1][1]\00"
+@.str.5 = constant [15 x i8] c"glob [1][0][0]\00"
+@.str.6 = constant [15 x i8] c"glob [1][0][1]\00"
+@.str.7 = constant [15 x i8] c"glob [1][1][0]\00"
+@.str.8 = constant [15 x i8] c"glob [1][1][1]\00"
 @globArrStr = global [2 x [2 x [2 x i8*]]] zeroinitializer
-@support14rand8 = global [200 x i8] zeroinitializer
-@support17rand94 = global [200 x i8] zeroinitializer
-@support21rand786 = global [200 x i8] zeroinitializer
-@support24rand761 = global [200 x i8] zeroinitializer
-@support29rand849 = global [200 x i8] zeroinitializer
-@support32rand254 = global [200 x i8] zeroinitializer
-@support36rand902 = global [200 x i8] zeroinitializer
-@support39rand562 = global [200 x i8] zeroinitializer
+@support14 = global [200 x i8] zeroinitializer
+@support17 = global [200 x i8] zeroinitializer
+@support21 = global [200 x i8] zeroinitializer
+@support24 = global [200 x i8] zeroinitializer
+@support29 = global [200 x i8] zeroinitializer
+@support32 = global [200 x i8] zeroinitializer
+@support36 = global [200 x i8] zeroinitializer
+@support39 = global [200 x i8] zeroinitializer
 @.str.strtest.ret.arr = global [200 x i8] zeroinitializer
 @.str.strtest.ret = global i8* getelementptr inbounds([200 x i8],[200 x i8]* @.str.strtest.ret.arr,i32 0,i32 0)
 @.str.9 = constant [10 x i8] c" it works\00"
@@ -49,50 +49,50 @@ define void @globalinit(){
 %1 = getelementptr inbounds [4 x i8], [4 x i8]* @.str.0 , i32 0, i32 0
 %2= load i8*,i8** @stgl
 %3 = call i8* (i8*,i8*) @strcpy(i8* %2,i8* %1)
-%4 = getelementptr inbounds [4 x i8], [4 x i8]* @.str.1 , i32 0, i32 0
-%5 = getelementptr inbounds [8 x i8], [8 x i8]* @.str.2 , i32 0, i32 0
-%6 = getelementptr inbounds [3 x i8], [3 x i8]* @.str.3 , i32 0, i32 0
-%7 = getelementptr inbounds [5 x i8], [5 x i8]* @.str.4 , i32 0, i32 0
-%8 = getelementptr inbounds [7 x i8], [7 x i8]* @.str.5 , i32 0, i32 0
-%9 = getelementptr inbounds [14 x i8], [14 x i8]* @.str.6 , i32 0, i32 0
-%10 = getelementptr inbounds [10 x i8], [10 x i8]* @.str.7 , i32 0, i32 0
-%11 = getelementptr inbounds [10 x i8], [10 x i8]* @.str.8 , i32 0, i32 0
+%4 = getelementptr inbounds [15 x i8], [15 x i8]* @.str.1 , i32 0, i32 0
+%5 = getelementptr inbounds [15 x i8], [15 x i8]* @.str.2 , i32 0, i32 0
+%6 = getelementptr inbounds [15 x i8], [15 x i8]* @.str.3 , i32 0, i32 0
+%7 = getelementptr inbounds [15 x i8], [15 x i8]* @.str.4 , i32 0, i32 0
+%8 = getelementptr inbounds [15 x i8], [15 x i8]* @.str.5 , i32 0, i32 0
+%9 = getelementptr inbounds [15 x i8], [15 x i8]* @.str.6 , i32 0, i32 0
+%10 = getelementptr inbounds [15 x i8], [15 x i8]* @.str.7 , i32 0, i32 0
+%11 = getelementptr inbounds [15 x i8], [15 x i8]* @.str.8 , i32 0, i32 0
 %12 = getelementptr inbounds [2 x [2 x [2 x i8*]]],[2 x [2 x [2 x i8*]]]* @globArrStr,i32 0,i32 0
 %13 = getelementptr inbounds [2 x [2 x i8*]],[2 x [2 x i8*]]* %12,i32 0,i32 0
 %14 = getelementptr inbounds [2 x i8*],[2 x i8*]* %13,i32 0,i32 0
-%15 = getelementptr inbounds [200 x i8],[200 x i8]* @support14rand8,i32 0,i32 0
+%15 = getelementptr inbounds [200 x i8],[200 x i8]* @support14,i32 0,i32 0
 %16 = call i8* (i8*,i8*) @strcpy(i8* %15,i8* %4)
 store i8* %15,i8** %14
 %17 = getelementptr inbounds [2 x i8*],[2 x i8*]* %13,i32 0,i32 1
-%18 = getelementptr inbounds [200 x i8],[200 x i8]* @support17rand94,i32 0,i32 0
+%18 = getelementptr inbounds [200 x i8],[200 x i8]* @support17,i32 0,i32 0
 %19 = call i8* (i8*,i8*) @strcpy(i8* %18,i8* %5)
 store i8* %18,i8** %17
 %20 = getelementptr inbounds [2 x [2 x i8*]],[2 x [2 x i8*]]* %12,i32 0,i32 1
 %21 = getelementptr inbounds [2 x i8*],[2 x i8*]* %20,i32 0,i32 0
-%22 = getelementptr inbounds [200 x i8],[200 x i8]* @support21rand786,i32 0,i32 0
+%22 = getelementptr inbounds [200 x i8],[200 x i8]* @support21,i32 0,i32 0
 %23 = call i8* (i8*,i8*) @strcpy(i8* %22,i8* %6)
 store i8* %22,i8** %21
 %24 = getelementptr inbounds [2 x i8*],[2 x i8*]* %20,i32 0,i32 1
-%25 = getelementptr inbounds [200 x i8],[200 x i8]* @support24rand761,i32 0,i32 0
+%25 = getelementptr inbounds [200 x i8],[200 x i8]* @support24,i32 0,i32 0
 %26 = call i8* (i8*,i8*) @strcpy(i8* %25,i8* %7)
 store i8* %25,i8** %24
 %27 = getelementptr inbounds [2 x [2 x [2 x i8*]]],[2 x [2 x [2 x i8*]]]* @globArrStr,i32 0,i32 1
 %28 = getelementptr inbounds [2 x [2 x i8*]],[2 x [2 x i8*]]* %27,i32 0,i32 0
 %29 = getelementptr inbounds [2 x i8*],[2 x i8*]* %28,i32 0,i32 0
-%30 = getelementptr inbounds [200 x i8],[200 x i8]* @support29rand849,i32 0,i32 0
+%30 = getelementptr inbounds [200 x i8],[200 x i8]* @support29,i32 0,i32 0
 %31 = call i8* (i8*,i8*) @strcpy(i8* %30,i8* %8)
 store i8* %30,i8** %29
 %32 = getelementptr inbounds [2 x i8*],[2 x i8*]* %28,i32 0,i32 1
-%33 = getelementptr inbounds [200 x i8],[200 x i8]* @support32rand254,i32 0,i32 0
+%33 = getelementptr inbounds [200 x i8],[200 x i8]* @support32,i32 0,i32 0
 %34 = call i8* (i8*,i8*) @strcpy(i8* %33,i8* %9)
 store i8* %33,i8** %32
 %35 = getelementptr inbounds [2 x [2 x i8*]],[2 x [2 x i8*]]* %27,i32 0,i32 1
 %36 = getelementptr inbounds [2 x i8*],[2 x i8*]* %35,i32 0,i32 0
-%37 = getelementptr inbounds [200 x i8],[200 x i8]* @support36rand902,i32 0,i32 0
+%37 = getelementptr inbounds [200 x i8],[200 x i8]* @support36,i32 0,i32 0
 %38 = call i8* (i8*,i8*) @strcpy(i8* %37,i8* %10)
 store i8* %37,i8** %36
 %39 = getelementptr inbounds [2 x i8*],[2 x i8*]* %35,i32 0,i32 1
-%40 = getelementptr inbounds [200 x i8],[200 x i8]* @support39rand562,i32 0,i32 0
+%40 = getelementptr inbounds [200 x i8],[200 x i8]* @support39,i32 0,i32 0
 %41 = call i8* (i8*,i8*) @strcpy(i8* %40,i8* %11)
 store i8* %40,i8** %39
 ret void
