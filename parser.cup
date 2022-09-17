@@ -524,6 +524,20 @@ parser code {:
         }
         else return "ERROR";
     }
+    public void forFinish(String index,int forind){
+        Value v=getValue(index).value;
+        append("\nbr label %for.inc."+forind);
+        append("\nfor.inc."+forind+":");
+        append("\n%"+getId()+" = load i32,i32* "+v.getReg());
+        int k=getCurrentId();
+        append("\n%"+getId()+" = add nsw i32 %"+k+",1");
+        append("\nstore i32 %"+getCurrentId()+",i32* "+v.getReg());
+        append("\nbr label %for.cond."+forind);
+        append("\nfor.exit."+forind+":");
+        scopes.remove(scopes.size()-1);
+        if(forloops.size()==1) inConditional=false;
+        forloops.remove(forloops.size()-1);
+    }
     public void semError(String message){
         errorBuffer.append("\n(semantic error at line: "+getLine()+",column:"+getColumn()+"):"+message);
         semErrors++;
@@ -1971,20 +1985,7 @@ FORCOND::= FOR ID:index IN INTVAL:start DOTRANGE:d INTVAL:finish {:
     if(!inConditional)  inConditional=true;
     forloops.add(currFor);
     RESULT=currFor;
-:} GO CONDSTMS GC {:
-    Value v=getValue(index).value;
-    append("\nbr label %for.inc."+RESULT);
-    append("\nfor.inc."+RESULT+":");
-    append("\n%"+getId()+" = load i32,i32* "+v.getReg());
-    int k=getCurrentId();
-    append("\n%"+getId()+" = add nsw i32 %"+k+",1");
-    append("\nstore i32 %"+getCurrentId()+",i32* "+v.getReg());
-    append("\nbr label %for.cond."+RESULT);
-    append("\nfor.exit."+RESULT+":");
-    scopes.remove(scopes.size()-1);
-    if(forloops.size()==1) inConditional=false;
-    forloops.remove(forloops.size()-1);
-:} | FOR ID:index IN ID:start DOTRANGE:d ID:finish {:
+:} GO CONDSTMS GC {: forFinish(index,(int)RESULT); :} | FOR ID:index IN ID:start DOTRANGE:d ID:finish {:
     scopes.add(new Scope());
     int currFor=currentFor++;
     Tuple tstart=getValue(start),tfinish=getValue(finish);
@@ -2020,20 +2021,7 @@ FORCOND::= FOR ID:index IN INTVAL:start DOTRANGE:d INTVAL:finish {:
     if(!inConditional)  inConditional=true;
     forloops.add(currFor);
     RESULT=currFor;
-:} GO CONDSTMS GC {:
-    Value v=getValue(index).value;
-    append("\nbr label %for.inc."+RESULT);
-    append("\nfor.inc."+RESULT+":");
-    append("\n%"+getId()+" = load i32,i32* "+v.getReg());
-    int k=getCurrentId();
-    append("\n%"+getId()+" = add nsw i32 %"+k+",1");
-    append("\nstore i32 %"+getCurrentId()+",i32* "+v.getReg());
-    append("\nbr label %for.cond."+RESULT);
-    append("\nfor.exit."+RESULT+":");
-    scopes.remove(scopes.size()-1);
-    if(forloops.size()==1) inConditional=false;
-    forloops.remove(forloops.size()-1);
-:} | 
+:} GO CONDSTMS GC {: forFinish(index,(int)RESULT); :} | 
 FOR ID:index IN ID:start DOTRANGE:d INTVAL:finish {:
     scopes.add(new Scope());
     int currFor=currentFor++;
@@ -2065,20 +2053,7 @@ FOR ID:index IN ID:start DOTRANGE:d INTVAL:finish {:
     if(!inConditional)  inConditional=true;
     forloops.add(currFor);
     RESULT=currFor;
-:} GO CONDSTMS GC {:
-    Value v=getValue(index).value;
-    append("\nbr label %for.inc."+RESULT);
-    append("\nfor.inc."+RESULT+":");
-    append("\n%"+getId()+" = load i32,i32* "+v.getReg());
-    int k=getCurrentId();
-    append("\n%"+getId()+" = add nsw i32 %"+k+",1");
-    append("\nstore i32 %"+getCurrentId()+",i32* "+v.getReg());
-    append("\nbr label %for.cond."+RESULT);
-    append("\nfor.exit."+RESULT+":");
-    scopes.remove(scopes.size()-1);
-    if(forloops.size()==1) inConditional=false;
-    forloops.remove(forloops.size()-1);
-:} | FOR ID:index IN INTVAL:start DOTRANGE:d ID:finish {:
+:} GO CONDSTMS GC {: forFinish(index,(int)RESULT); :} | FOR ID:index IN INTVAL:start DOTRANGE:d ID:finish {:
     scopes.add(new Scope());
     int currFor=currentFor++;
     append("\nbr label %for.init."+currFor);
@@ -2110,20 +2085,7 @@ FOR ID:index IN ID:start DOTRANGE:d INTVAL:finish {:
     if(!inConditional)  inConditional=true;
     forloops.add(currFor);
     RESULT=currFor;
-:} GO CONDSTMS GC {:
-    Value v=getValue(index).value;
-    append("\nbr label %for.inc."+RESULT);
-    append("\nfor.inc."+RESULT+":");
-    append("\n%"+getId()+" = load i32,i32* "+v.getReg());
-    int k=getCurrentId();
-    append("\n%"+getId()+" = add nsw i32 %"+k+",1");
-    append("\nstore i32 %"+getCurrentId()+",i32* "+v.getReg());
-    append("\nbr label %for.cond."+RESULT);
-    append("\nfor.exit."+RESULT+":");
-    scopes.remove(scopes.size()-1);
-    if(forloops.size()==1) inConditional=false;
-    forloops.remove(forloops.size()-1);
-:} | FOR error GO CONDSTMS GC {:synError("Error in for declaration");:};
+:} GO CONDSTMS GC {: forFinish(index,(int)RESULT); :} | FOR error GO CONDSTMS GC {:synError("Error in for declaration");:};
 
 
 COND::= COND:a AND COND:b {:
@@ -2150,8 +2112,7 @@ COND::= COND:a AND COND:b {:
     }
     else    RESULT=a;
 :} | BO COND:a BC {: RESULT=a;
-:} |
-error OR COND {:synError("Error in conditional expression");RESULT=new Attribute("i1",-1);:} | 
+:} | error OR COND {:synError("Error in conditional expression");RESULT=new Attribute("i1",-1);:} | 
 error AND COND {:synError("Error in conditional expression");RESULT=new Attribute("i1",-1);:};
 
 CONDATTR::= EXP:a CONDOP:cond EXP:b {:
