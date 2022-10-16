@@ -4,7 +4,8 @@ This report analyzes some details of a compiler built to recognize some of the f
 
 Swift is a compiled language developed by Apple, it is derivative from Objective C, and puts its focus into memory safety and type safety, it is very powerful thanks to a high degree of optimization during the compiling phase, it also provides a lot of features familiar to us like classes, generics and other high level abstractions, to declare a variable we use the ''**var**'' keyword, while for a constant we use the ''**let**'' keyword, we can declare a variable directly doing something like this ''**var a=2**'', in this way the compiler infer the type of the variable a from the expression associated, but we can also declare a variable with type annotation, to decide clearly the type in the following way ''**var a : Int**'', this was a quick introduction to some basics of the language, to check more about the Swift programming language you can find here its documentation : [[https://docs.swift.org/swift-book/LanguageGuide/TheBasics.html]] .
 
-==== Implemented parts ====
+## Implemented parts
+
 Here follows the list of parts of the Swift programming language recognized by the compiler:
 - Data types:
 - - basic data types:
