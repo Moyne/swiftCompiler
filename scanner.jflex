@@ -10,11 +10,11 @@ import java_cup.runtime.*;
 %state STRINGINTERPOLATION
 id=[\_a-zA-Z][\_a-zA-Z0-9]*
 int=  [0-9] | [1-9][0-9]*
-double =  ((([0-9]+\.[0-9]*) | ([0-9]*\.[0-9]+)) (e|E('+'|'-')?[0-9]+)?)
-string= \"[a-zA-Z0-9\_]*\"
-stringInterpolationStart=\"[^\"\(\)]*\\\(
-stringInterpolationIntermediate=\)[^\"\(\)]*\\\(
-stringInterpolationEnd=\)[^\"\(\)\r\n\t]*\"
+double =  ((([1-9][0-9]*\.[0-9]+ ) | (0\.[0-9]+)) (e|E('+'|'-')?[0-9]+)?)
+string= \"([^\"\\]|(\\n))*\"
+stringInterpolationStart=\"([^\"\\]|(\\n))*\\\(
+stringInterpolationIntermediate=\)([^\"\\]|(\\n))*\\\(
+stringInterpolationEnd=\)([^\"\\]|(\\n))*\"
 nl = \r|\n|\r\n
 ws = [ \t]
 %{
@@ -37,9 +37,9 @@ ws = [ \t]
 {stringInterpolationStart} { yybegin(STRINGINTERPOLATION);return symbol(sym.STRINGVALS,yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A")); }
 <STRINGINTERPOLATION> {stringInterpolationIntermediate} { return symbol(sym.STRINGVALI,yytext().substring(1,yytext().length()-2).replace("\n","\\"+"0A")); }
 <STRINGINTERPOLATION> {stringInterpolationEnd} { yybegin(YYINITIAL);return symbol(sym.STRINGVALE,yytext().substring(1,yytext().length()-1).replace("\n","\\"+"0A")); }
+"println" { return symbol(sym.PRINTLN); }
 "print" { return symbol(sym.PRINT); }
 "inout" { return symbol(sym.INOUT); }
-"class" { return symbol(sym.CLASS); }
 "String" { return symbol(sym.STRING); }
 "Double" { return symbol(sym.DOUBLE); }
 "Int" { return symbol(sym.INT); }
@@ -63,6 +63,7 @@ ws = [ \t]
 ")" { return symbol(sym.BC); }
 "{" { return symbol(sym.GO); }
 "}" { return symbol(sym.GC); }
+"!=" { return symbol(sym.NOTEQUAL); }
 "==" { return symbol(sym.EQUAL); }
 ">" { return symbol(sym.GREATER); }
 ">=" { return symbol(sym.GREATEREQ); }
@@ -70,6 +71,9 @@ ws = [ \t]
 "<=" { return symbol(sym.LESSEQ); }
 "&&" { return symbol(sym.AND); }
 "&" { return symbol(sym.DEREF); }
+"|" { return symbol(sym.ORB); }
+"^" { return symbol(sym.XORB); }
+"~" { return symbol(sym.NOTB); } 
 "||" { return symbol(sym.OR); }
 "!" { return symbol(sym.NOT); }
 "." { return symbol(sym.DOT); }
@@ -77,6 +81,8 @@ ws = [ \t]
 "]" { return symbol(sym.QC); }
 "_" { return symbol(sym.USCORE); }
 {id} { return symbol(sym.ID,yytext()); }
-{ws}|{nl}       {;}
-"/*" ~ "*/"     {;}
+";" { return symbol(sym.S); }
+{nl} { return symbol(sym.NL); }
+{ws}       {;}
+"/*" ~ "*/" | "//" ~ {nl}   { return symbol(sym.NL); }
 . {System.out.println("SCANNER ERROR: "+yytext());}
